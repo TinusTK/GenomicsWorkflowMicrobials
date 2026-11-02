@@ -166,6 +166,8 @@ def start(wf_id, version, input_dir, name=None, cleanup=True, steps_off=(), extr
         cmd += [f"--steps.{s}", "false"]
     if WEBLOG_URL:
         with open(rdir / "nextflow.config", "a") as fh:
+            if _nextflow_version() >= (25, 10):  # weblog moved out of core into a plugin
+                fh.write(f"plugins {{ id '{WEBLOG_PLUGIN}' }}\n")
             fh.write(f"weblog {{ enabled = true; url = '{WEBLOG_URL}/{run_id}' }}\n")
     cmd += list(extra or [])
     run["command"] = shlex.join(cmd)
@@ -183,6 +185,25 @@ def start(wf_id, version, input_dir, name=None, cleanup=True, steps_off=(), extr
         return load(run_id)
     threading.Thread(target=_follow, args=(run_id,), daemon=True).start()
     return run
+
+
+# Pinned so runs work offline once Nextflow has downloaded it (~/.nextflow/plugins).
+WEBLOG_PLUGIN = "nf-weblog@1.2.0"
+_NF_VERSION = None
+
+
+def _nextflow_version():
+    """Nextflow's version as a tuple, e.g. (26, 10, 4); (0,) if unknown."""
+    global _NF_VERSION
+    if _NF_VERSION is None:
+        try:
+            out = subprocess.run(["nextflow", "-version"], capture_output=True, text=True, timeout=60,
+                                 env={**os.environ, "NXF_ANSI_LOG": "false"}).stdout
+            m = re.search(r"version\s+(\d+)\.(\d+)\.(\d+)", out)
+            _NF_VERSION = tuple(int(x) for x in m.groups()) if m else (0,)
+        except (OSError, subprocess.SubprocessError):
+            _NF_VERSION = (0,)
+    return _NF_VERSION
 
 
 def _profile():
