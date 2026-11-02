@@ -10,7 +10,8 @@ its results.
 
 The original Galaxy workflow is in [`reference/`](reference/).
 
-> **Status: early development (v0.2.0).**
+> **Version 1.0.0** (Microbial Pipeline). See
+> [Releases](https://github.com/TinusTK/NTGPathologyGenomicsWorkflowPipeline/releases).
 
 ## What it does
 
@@ -51,6 +52,29 @@ workflow "RDH v5.2 + Shigella + C. diphtheriae typing" adds them.
   this computer has)
 
 ## Installing
+
+### Quick install
+
+The installer sets up the tools, gets the newest release of the pipeline and
+(on Windows) makes the desktop shortcuts. Running it again is safe.
+
+**Windows 10/11:** first install Ubuntu on WSL2 (step 1 below: `wsl --install
+-d Ubuntu-24.04` as administrator, restart, open Ubuntu once). Then, in normal
+PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/TinusTK/NTGPathologyGenomicsWorkflowPipeline/main/install.ps1 | iex
+```
+
+**Linux (Ubuntu/Debian) or inside Ubuntu on WSL2:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TinusTK/NTGPathologyGenomicsWorkflowPipeline/main/install.sh | bash
+```
+
+It installs into `~/NTGPathologyGenomicsWorkflowPipeline` (Windows: your
+Documents folder); add `-s -- <folder>` after `bash` for another folder. Then
+install the databases (step 5 below). The steps below do the same by hand.
 
 ### Windows 10/11 (with WSL2)
 
@@ -138,13 +162,16 @@ browser.
 
 ### Updating
 
-In the UI, **This computer → Updates** shows whether a newer version is on
+In the UI, **This computer → Updates** shows whether a newer release is on
 GitHub (the menu shows an "update" badge when there is one). **Update now**
-downloads it and restarts the UI; it waits if a run is going. Or by hand:
+downloads it and restarts the UI; it waits if a run is going. Updates follow
+releases (`v1.0.0`, `v1.1.0`, …), not every change on the main branch. Or by
+hand:
 
 ```bash
 cd NTGPathologyGenomicsWorkflowPipeline
-git pull
+git fetch --tags
+git merge --ff-only v1.0.0        # the release you want
 ```
 
 Your saved workflows, runs and databases are kept in `~/.ntg/` inside
@@ -216,8 +243,8 @@ results/
     report_*.html, timeline_*.html, trace_*.tsv, dag_*.html
 ```
 
-**Cleanup** (`--cleanup true`, on by default for now) deletes Nextflow's work
-folder after a successful run to save space; final results are kept. Turn it
+**Cleanup** (`--cleanup true`, off by default) deletes Nextflow's work
+folder after a successful run to save space; final results are kept. Leave it
 off to keep every intermediate file.
 
 ## Adding tools

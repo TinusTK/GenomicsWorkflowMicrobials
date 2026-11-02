@@ -1,9 +1,13 @@
 """Updates: compare this pipeline folder with its git remote and fast-forward to it.
 
+Updates follow releases: the newest release tag (v1.2.0; not v1.2.0-rc1) on the
+GitHub branch. Until the repo has a release, they follow the branch itself.
+
 Only the pipeline folder changes. Saved workflows, runs, databases and tool packs
 live in $NTG_HOME (~/.ntg), so an update never touches them.
 """
 import os
+import re
 import subprocess
 
 from . import catalog, runs
@@ -28,6 +32,20 @@ def _commit(ref):
         return None
     sha, date, subject = out.split("\t", 2)
     return {"commit": sha, "date": date, "subject": subject}
+
+
+RELEASE_RE = re.compile(r"v\d+(?:\.\d+)*")
+
+
+def _latest_release(ref):
+    """Newest release tag in ref's history, or None."""
+    rc, out = _git("tag", "--merged", ref, "--sort=-v:refname", "--list", "v*")
+    return next((t for t in out.splitlines() if RELEASE_RE.fullmatch(t)), None) if not rc else None
+
+
+def _release_at(ref):
+    rc, out = _git("tag", "--points-at", ref)
+    return next((t for t in out.splitlines() if RELEASE_RE.fullmatch(t)), None) if not rc else None
 
 
 KINDS = {"fix": "Bug fix", "new": "New", "improved": "Improved"}
@@ -70,19 +88,22 @@ def status(fetch=True):
     out = {"current": current, "branch": branch, "upstream": upstream, "checked": False}
     if fetch:
         remote = upstream.split("/", 1)[0]
-        rc, msg = _git("fetch", "--quiet", remote, timeout=60)
+        rc, msg = _git("fetch", "--quiet", "--tags", remote, timeout=60)
         if rc:
             out["error"] = f"Couldn't reach GitHub to check for updates: {msg.splitlines()[-1] if msg else 'unknown error'}"
             return out
         out["checked"] = True
+    out["release"] = _latest_release(upstream)  # None: no release yet, follow the branch
+    out["current_release"] = _release_at("HEAD")
+    target = out["target"] = out["release"] or upstream
     # Full messages, so people can read what each change is before updating.
-    rc, log = _git("log", "--format=%h%x09%ad%x09%s%x09%b%x1e", "--date=short", f"HEAD..{upstream}")
+    rc, log = _git("log", "--format=%h%x09%ad%x09%s%x09%b%x1e", "--date=short", f"HEAD..{target}")
     out["new"] = [_change(rec) for rec in log.split("\x1e") if rec.strip()] if not rc else []
     rc, ahead = _git("rev-list", "--count", f"{upstream}..HEAD")
     out["ahead"] = int(ahead) if not rc and ahead.isdigit() else 0
     rc, dirty = _git("status", "--porcelain", "--untracked-files=no")
     out["changed_files"] = [line[3:] for line in dirty.splitlines()] if not rc else []
-    out["latest"] = _commit(upstream) if out["new"] else current
+    out["latest"] = _commit(target) if out["new"] else current
     out["blocked"] = _blocked(out)
     return out
 
@@ -99,7 +120,7 @@ def _blocked(st):
 
 
 def update():
-    """Fast-forward to the remote. Refuses when that could lose work or disturb a run."""
+    """Fast-forward to the newest release (or the branch). Refuses when that could lose work or disturb a run."""
     st = status(fetch=True)
     if st.get("error"):
         raise ValueError(st["error"])
@@ -107,7 +128,7 @@ def update():
         return {"updated": False, "current": st["current"]}
     if st["blocked"]:
         raise ValueError(st["blocked"])
-    rc, msg = _git("merge", "--ff-only", "--quiet", st["upstream"], timeout=120)
+    rc, msg = _git("merge", "--ff-only", "--quiet", st["target"], timeout=120)
     if rc:
         raise ValueError(f"Update failed: {msg}")
     return {"updated": True, "current": _commit("HEAD"), "applied": st["new"]}

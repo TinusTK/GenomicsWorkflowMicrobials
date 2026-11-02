@@ -130,7 +130,7 @@ def list_runs():
     return out
 
 
-def start(wf_id, version, input_dir, name=None, cleanup=True, steps_off=(), extra=None, wait=False, pairing=None):
+def start(wf_id, version, input_dir, name=None, cleanup=False, steps_off=(), extra=None, wait=False, pairing=None):
     wf = catalog.load_workflow(wf_id, version)
     input_dir = str(Path(input_dir).expanduser().resolve())
     found = find_samples(input_dir, pairing)

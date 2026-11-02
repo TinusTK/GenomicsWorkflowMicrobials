@@ -16,10 +16,8 @@ say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 # All in a function, so bash has read the whole script before anything runs
 # (with curl | bash, a command reading stdin could otherwise eat the rest of it).
 main() {
-if [ "$(id -u)" -eq 0 ]; then
-    echo "Run this as your normal user, not root (it asks for sudo when needed)." >&2
-    exit 1
-fi
+local sudo=sudo
+[ "$(id -u)" -eq 0 ] && sudo=""  # root (e.g. a WSL without a user set up) needs no sudo
 
 if [ "${NTG_SKIP_PACKAGES:-0}" != "1" ]; then
     if ! command -v apt-get >/dev/null; then
@@ -27,15 +25,15 @@ if [ "${NTG_SKIP_PACKAGES:-0}" != "1" ]; then
         echo "Nextflow yourself, then run this again with NTG_SKIP_PACKAGES=1." >&2
         exit 1
     fi
-    say "Installing the tools (asks for your password)"
-    sudo apt-get update
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git python3 python3-yaml openjdk-21-jre-headless docker.io curl
-    if ! id -nG "$USER" | grep -qw docker; then
-        sudo usermod -aG docker "$USER"
+    say "Installing the tools (may ask for your password)"
+    $sudo apt-get update
+    $sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y git python3 python3-yaml openjdk-21-jre-headless docker.io curl
+    if [ -n "$sudo" ] && ! id -nG | grep -qw docker; then
+        $sudo usermod -aG docker "$(id -un)"
         NEW_DOCKER_GROUP=1
     fi
     if command -v systemctl >/dev/null && [ -d /run/systemd/system ]; then
-        sudo systemctl enable --now docker
+        $sudo systemctl enable --now docker
     else
         echo "systemd isn't running, so Docker can't start by itself. On WSL, turn on systemd" >&2
         echo "(https://learn.microsoft.com/windows/wsl/systemd), or start Docker by hand." >&2
@@ -44,7 +42,7 @@ if [ "${NTG_SKIP_PACKAGES:-0}" != "1" ]; then
         say "Installing Nextflow"
         tmp=$(mktemp -d)
         (cd "$tmp" && curl -fsSL https://get.nextflow.io | bash)
-        sudo install -m 755 "$tmp/nextflow" /usr/local/bin/nextflow
+        $sudo install -m 755 "$tmp/nextflow" /usr/local/bin/nextflow
         rm -rf "$tmp"
     fi
 fi
