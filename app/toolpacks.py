@@ -20,6 +20,11 @@ from pathlib import Path
 from . import catalog
 
 MICROMAMBA = "mambaorg/micromamba:2.0.5"
+# What counts as an update for a pack: a new release tag (v1.2.0; tags like
+# v1.2.0-galaxy1 or -rc1 don't count), any new commit on the main branch, or
+# auto = releases if the repo has any, else main.
+UPDATE_MODES = ("auto", "releases", "main")
+UPDATES_FILE = catalog.HOME / "pack_updates.json"  # this computer's choices, set on the Tools page
 
 
 def _packs_dir():
@@ -32,8 +37,36 @@ def list_packs():
         p = catalog.load_yaml(f)
         out.append({"id": p["id"], "name": p["name"], "repo": p["repo"], "commit": p.get("commit"),
                     "description": p.get("description", ""), "tools": [t["id"] for t in p["tools"]],
-                    "installed": (catalog.HOME / "tools" / p["id"] / "pack.yml").exists()})
+                    "installed": (catalog.HOME / "tools" / p["id"] / "pack.yml").exists(),
+                    "updates": update_mode(p["id"])})
     return out
+
+
+def _chosen_modes():
+    try:
+        return json.loads(UPDATES_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def update_mode(pack_id):
+    """The choice on the Tools page, else the pack file's `updates:`, else auto."""
+    mode = _chosen_modes().get(pack_id)
+    if mode not in UPDATE_MODES:
+        for f in (_packs_dir() / f"{pack_id}.yml", catalog.HOME / "tools" / pack_id / "pack.yml"):
+            if f.exists():
+                mode = catalog.load_yaml(f).get("updates")
+                break
+    return mode if mode in UPDATE_MODES else "auto"
+
+
+def set_update_mode(pack_id, mode):
+    if mode not in UPDATE_MODES:
+        raise ValueError(f"updates must be one of {', '.join(UPDATE_MODES)}")
+    modes = {**_chosen_modes(), pack_id: mode}
+    UPDATES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    UPDATES_FILE.write_text(json.dumps(modes, indent=2) + "\n")
+    return {"id": pack_id, "updates": mode}
 
 
 def _git(*args, cwd=None):

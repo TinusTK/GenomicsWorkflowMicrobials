@@ -102,6 +102,7 @@ id: my_pack
 name: My pack
 repo: https://github.com/owner/repo
 commit: <full commit hash>      # what gets installed; update to upgrade
+updates: auto                   # what counts as an update (optional, see below)
 description: ...
 container:
   image: quay.io/...            # a published image, or:
@@ -118,3 +119,13 @@ Installing clones the repo at the pinned commit, builds the container from
 the conda environment (micromamba) when needed, and copies each tool's files
 to `~/.ntg/tools/<pack>/<tool>/`. The pack's repo and commit are recorded with
 each tool and shown in the UI.
+
+`updates` says when the Tools page shows a pack as having a newer version:
+
+- `releases`: a release tag newer than the installed one (`v1.2.0` or `1.2`).
+  Tags with a suffix, such as `v1.2.0-galaxy1` or `v1.3.0-rc1`, don't count.
+- `main`: any commit on the repo's main branch that isn't installed.
+- `auto` (default): `releases` if the repo has a release tag, else `main`.
+
+Each computer can change it per pack on the Tools page (saved in
+`~/.ntg/pack_updates.json`).

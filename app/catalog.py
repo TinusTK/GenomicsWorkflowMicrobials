@@ -157,6 +157,8 @@ def save_workflow(wf, new_id=None):
         if not ID_RE.match(new_id):
             raise ValueError("workflow id: lowercase letters, digits and _ only, starting with a letter")
         wf["id"] = new_id
+        if user_workflow_versions(new_id):  # a new workflow must not add a version to another one
+            raise ValueError(f"a workflow called {new_id} already exists: pick another name")
     if any(b["id"] == wf["id"] for b in builtin_workflows()):
         raise ValueError("built-in workflows are read-only: save it under a new id")
     existing = user_workflow_versions(wf["id"])

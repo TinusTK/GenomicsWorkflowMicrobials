@@ -23,6 +23,7 @@ from . import catalog, toolpacks
 
 QUAY = "quay.io/biocontainers/"
 CACHE = catalog.HOME / "tool_updates.json"
+CACHE_FORMAT = 2  # 2: git versions say which tags are releases
 DAY = dt.timedelta(days=1)
 _check_lock = threading.Lock()
 
@@ -75,6 +76,20 @@ def _quay_versions(tool):
             for v, (t, _) in sorted(best.items(), key=lambda x: _vkey(x[0]), reverse=True)]
 
 
+def _release(tag):
+    """'1.2.0' for a release tag (v1.2.0, 1.2); None for v1.2.0-galaxy1, -rc1 and other tags."""
+    m = re.fullmatch(r"v?(\d+(?:\.\d+)*)", tag)
+    return m.group(1) if m else None
+
+
+def _rkey(v):
+    """_vkey without trailing zeros, so 1.0 and 1.0.0 are the same release."""
+    k = _vkey(v)
+    while len(k) > 1 and k[-1] == (0, ""):
+        k.pop()
+    return k
+
+
 def _git_versions(tool):
     src = tool["source"]
     p = subprocess.run(["git", "ls-remote", src["repo"]], cwd="/",  # needs no local repo
@@ -83,16 +98,18 @@ def _git_versions(tool):
         raise RuntimeError(p.stderr.strip() or "git ls-remote failed")
     refs = [line.split("\t") for line in p.stdout.splitlines()]
     head = next((sha for sha, ref in refs if ref == "HEAD"), None)  # the repo's main branch
-    out, seen = [], set()
+    peeled = {ref.removesuffix("^{}"): sha for sha, ref in refs if ref.endswith("^{}")}  # annotated tag -> its commit
+    out = []
     for sha, ref in refs:
-        if not ref.startswith(("refs/heads/", "refs/tags/")) or sha in seen:
+        if not ref.startswith(("refs/heads/", "refs/tags/")) or ref.endswith("^{}"):
             continue
-        seen.add(sha)
-        name = ref.removeprefix("refs/heads/").removeprefix("refs/tags/").removesuffix("^{}")
+        sha = peeled.get(ref, sha)
+        name = ref.removeprefix("refs/heads/").removeprefix("refs/tags/")
         what = "tag" if ref.startswith("refs/tags/") else "branch"
         main = what == "branch" and sha == head
-        out.append({"version": name, "choice": sha, "ref": "main" if main else what,
-                    "label": f"{'main branch' if main else what} {name} @ {sha[:10]}"})
+        rel = _release(name) if what == "tag" else None
+        out.append({"version": name, "choice": sha, "ref": "main" if main else what, "release": rel,
+                    "label": f"{'main branch' if main else 'release' if rel else what} {name} @ {sha[:10]}"})
     order = {"main": 0, "tag": 1, "branch": 2}
     return sorted(out, key=lambda v: (order[v["ref"]], [(-a, b) for a, b in _vkey(v["version"])]))
 
@@ -111,7 +128,7 @@ def check_all(tools=None):
                 res[tid] = {"kind": k, "versions": vs}
             except Exception as e:  # one tool failing must not stop the others
                 res[tid] = {"kind": k, "versions": [], "error": f"{type(e).__name__}: {e}"}
-        data = {"checked": dt.datetime.now().isoformat(timespec="seconds"), "tools": res}
+        data = {"checked": dt.datetime.now().isoformat(timespec="seconds"), "format": CACHE_FORMAT, "tools": res}
         CACHE.parent.mkdir(parents=True, exist_ok=True)
         CACHE.write_text(json.dumps(data, indent=1))
         return data
@@ -124,23 +141,45 @@ def status(tools=None):
         data = json.loads(CACHE.read_text())
     except (OSError, ValueError):
         data = {"checked": None, "tools": {}}
+    if data.get("format") != CACHE_FORMAT:  # written by an older version: check again
+        data = {"checked": None, "tools": {}}
     stale = not data["checked"] or dt.datetime.now() - dt.datetime.fromisoformat(data["checked"]) > DAY
     out = {}
     for tid, t in tools.items():
         info = data["tools"].get(tid) or {}
         have = installed_versions(t)
         newest_have = max((v["version"] for v in have), key=_vkey)
-        newer = []
+        newer, mode, effective = [], None, None
         if info.get("kind") == "biocontainers":
-            newer = [v["version"] for v in info.get("versions", []) if _vkey(v["version"]) > _vkey(newest_have)]
-        elif info.get("kind") == "git":  # the repo's main branch moved on past every installed commit
-            have_commits = {v.get("commit") for v in have}
-            newer = [v["label"] for v in info.get("versions", [])
-                     if v.get("ref") == "main" and v["choice"] not in have_commits]
+            newer = [v for v in info.get("versions", []) if _vkey(v["version"]) > _vkey(newest_have)]
+        elif info.get("kind") == "git":
+            mode = toolpacks.update_mode(t["source"]["pack"])
+            effective, newer = _git_newer(info.get("versions", []), have, mode)
         out[tid] = {"kind": kind(t), "installed": have, "available": info.get("versions", []),
-                    "newer": newer, "error": info.get("error")}
+                    "newer": [v["version"] if info["kind"] == "biocontainers" else v["label"] for v in newer],
+                    "newer_choices": [v["choice"] for v in newer],
+                    "update_mode": mode, "update_mode_effective": effective, "error": info.get("error")}
     return {"checked": data["checked"], "stale": stale, "tools": out,
             "updates": sorted(tid for tid, v in out.items() if v["newer"])}
+
+
+def _git_newer(versions, have, mode):
+    """(mode in effect, newer versions) for a pack tool. main: the main branch moved on
+    past every installed commit. releases: a release tag above the installed release."""
+    if mode == "auto":
+        mode = "releases" if any(v.get("release") for v in versions) else "main"
+    commits = {v.get("commit") for v in have}
+    if mode == "main":
+        return mode, [v for v in versions if v.get("ref") == "main" and v["choice"] not in commits]
+    # The installed release: from the tags on installed commits (v1.0-galaxy1 counts as 1.0),
+    # else the tool's own version numbers.
+    levels = [m.group(1) for v in versions if v.get("ref") == "tag" and v["choice"] in commits
+              for m in [re.match(r"v?(\d+(?:\.\d+)*)", v["version"])] if m]
+    levels = levels or [v["version"] for v in have]
+    have_level = max(levels, key=_rkey)
+    newer = [v for v in versions if v.get("release") and v["choice"] not in commits
+             and _rkey(v["release"]) > _rkey(have_level)]
+    return mode, sorted(newer, key=lambda v: _rkey(v["release"]), reverse=True)
 
 
 def check_in_background_if_stale():

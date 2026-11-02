@@ -227,6 +227,9 @@ class Handler(BaseHTTPRequestHandler):
         if post and p == ["packs", "install"]:
             src = self._body()["source"]
             return self._send(200, _job(f"Install tool pack {src}", lambda log, prog: toolpacks.install(src, log)))
+        if post and p == ["packs", "updates"]:
+            b = self._body()
+            return self._send(200, toolpacks.set_update_mode(b["id"], b["mode"]))
         if post and p == ["packs", "uninstall"]:
             toolpacks.uninstall(self._body()["id"])
             return self._send(200, {"ok": True})
@@ -238,7 +241,7 @@ class Handler(BaseHTTPRequestHandler):
         if post and p == ["runs"]:
             b = self._body()
             run = runs.start(b["workflow"], b.get("version"), b["input"], name=b.get("name"),
-                             cleanup=b.get("cleanup", True), steps_off=b.get("steps_off") or [],
+                             cleanup=b.get("cleanup", False), steps_off=b.get("steps_off") or [],
                              pairing=b.get("pairing"))
             return self._send(200, run)
         if g and len(p) == 2 and p[0] == "runs":

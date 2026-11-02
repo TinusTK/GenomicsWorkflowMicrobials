@@ -291,6 +291,7 @@ function renderWorkflows() {
     S.workflows.map((w) => h("option", { value: w.id, selected: w.id === S.wfId }, `${w.name}${w.builtin ? "  (built-in)" : ""}`)));
   const verSelect = h("select", { disabled: S.editing, title: "Load a saved version",
     onchange: async (e) => { S.wfVersion = +e.target.value; await pageWorkflows(); } },
+    S.wf._new ? h("option", {}, "new") :
     (S.wf.versions || [S.wf.version]).slice().reverse().map((v) => h("option", { value: v, selected: v === (S.wf._version || S.wf.version) }, `v${v}`)));
 
   const bar = h("div", { class: "card row" },
@@ -303,14 +304,18 @@ function renderWorkflows() {
       h("button", { onclick: addStepDialog }, "+ Add step"),
       h("button", { title: "Forget where the boxes were moved to and line them up automatically again",
         onclick: () => { if (S.draft.layout) { delete S.draft.layout; S.dirty = true; } renderWorkflows(); } }, "Reset layout"),
-      h("button", { onclick: () => { if (!S.dirty || confirm("Discard your changes?")) { S.editing = false; S.draft = null; S.dirty = false; renderWorkflows(); } } }, "Cancel"),
-      !S.wf.builtin ? h("button", { class: "primary", onclick: () => saveDraft(false) }, `Save as v${Math.max(...S.wf.versions) + 1}`) : null,
-      h("button", { class: S.wf.builtin ? "primary" : "", onclick: () => saveDraft(true) }, "Save as new workflow…"),
+      h("button", { onclick: () => { if (!S.dirty || confirm("Discard your changes?")) {
+        S.editing = false; S.draft = null; S.dirty = false;
+        if (S.wf._new) { S.wf = null; pageWorkflows(); } else renderWorkflows(); } } }, "Cancel"),
+      S.wf._new ? h("button", { class: "primary", onclick: () => saveDraft(true) }, "Save…")
+        : [!S.wf.builtin ? h("button", { class: "primary", onclick: () => saveDraft(false) }, `Save as v${Math.max(...S.wf.versions) + 1}`) : null,
+          h("button", { class: S.wf.builtin ? "primary" : "", onclick: () => saveDraft(true) }, "Save as new workflow…")],
     ] : [
       h("button", { onclick: () => { S.editing = true; S.draft = rawWorkflow(S.wf); S.draft._view = S.wf; S.dirty = false; renderWorkflows(); },
         title: S.wf.builtin ? "Built-in workflows can't change; you'll save your edits as a new workflow." : "Edit a copy; Save makes a new version." }, "✎ Edit"),
       h("button", { class: "primary", onclick: () => { S.runPreset = { id: S.wf.id, version: S.wf._version || S.wf.version }; go("run"); } }, "▶ Run this workflow"),
       S.wf.builtin ? null : h("button", { class: "danger", title: "Delete this workflow and all its saved versions", onclick: deleteWorkflow }, "Delete workflow"),
+      h("button", { title: "Start an empty workflow and add your own steps", onclick: newWorkflow }, "+ New workflow"),
     ]);
 
   const info = h("div", { class: "card" },
@@ -318,7 +323,8 @@ function renderWorkflows() {
     h("div", { class: "muted" }, wf.description || ""),
     wf.extends ? h("div", { class: "small muted" }, `Extends: ${wf.extends}`) : null,
     S.wf.error ? warnBox({ level: "error", message: S.wf.error }) : null,
-    S.wf.builtin && !S.editing ? h("div", { class: "small muted" }, "Built-in workflow: always read-only. Edit it to save your own copy under a new name.") : null);
+    S.wf.builtin && !S.editing ? h("div", { class: "small muted" }, "Built-in workflow: always read-only. Edit it to save your own copy under a new name.") : null,
+    S.editing && !Object.keys(wf.steps).length ? h("div", { class: "warn info" }, "No steps yet. Use + Add step, then click a step to connect its inputs.") : null);
 
   const graph = h("div", { id: "graph" });
   const panel = h("div", { class: "card step-panel", id: "step-panel" });
@@ -501,8 +507,19 @@ function addStep(tool) {
   S.selected = sid; S.dirty = true; renderWorkflows();
 }
 
+// An empty workflow in the editor: input = a folder of paired reads, no steps until Save.
+function newWorkflow() {
+  const name = prompt("Name for the new workflow:");
+  if (!name) return;
+  S.wf = { id: "", name, description: "", version: 0, versions: [], builtin: false, _new: true, steps: {},
+    input: { type: "paired_reads", pattern: "*_R{1,2}*.gz", description: "A folder of paired reads, <sample>_R1...gz and <sample>_R2...gz." } };
+  S.editing = true; S.draft = rawWorkflow(S.wf); S.draft._view = S.wf; S.dirty = true; S.selected = null;
+  renderWorkflows();
+}
+
 async function saveDraft(asNew) {
-  const wf = rawWorkflow(S.draft); delete wf._view;
+  const wf = rawWorkflow(S.draft); delete wf._view; delete wf._new;
+  if (!Object.keys(wf.steps).length) return toast("Add at least one step before saving", 6000);
   let newId = null;
   if (asNew) {
     const name = prompt("Name for the new workflow:", S.wf.builtin ? `${S.wf.name} (my copy)` : wf.name);
@@ -510,7 +527,7 @@ async function saveDraft(asNew) {
     newId = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").replace(/^(\d)/, "w_$1").slice(0, 50) || "my_workflow";
     wf.name = name;
     delete wf.extends;
-    wf.based_on = { id: S.wf.id, version: S.wf._version || S.wf.version };
+    if (!S.wf._new) wf.based_on = { id: S.wf.id, version: S.wf._version || S.wf.version };
   }
   try {
     const r = await api("workflows/save", { body: { workflow: wf, new_id: newId } });
@@ -527,7 +544,7 @@ async function pageRun() {
   const preset = S.runPreset || { id: S.wfId || (S.workflows[0] || {}).id };
   S.runPreset = null;
   const main = $("#main");
-  const state = { id: preset.id, version: preset.version, input: S.lastInput || "", off: new Set(), cleanup: true, wf: null,
+  const state = { id: preset.id, version: preset.version, input: S.lastInput || "", off: new Set(), cleanup: false, wf: null,
     pairing: S.lastPairing || { mode: "auto", r1: "_R1", r2: "_R2" } };
   const wfSel = h("select", { onchange: async (e) => { state.id = e.target.value; state.version = null; await loadWf(); } },
     S.workflows.map((w) => h("option", { value: w.id, selected: w.id === state.id }, w.name)));
@@ -545,7 +562,7 @@ async function pageRun() {
     h("option", { value: "custom", selected: state.pairing.mode === "custom" }, "Custom"));
   showCustom();
   const name = h("input", { type: "text", class: "wide", placeholder: "optional, e.g. 2026-10-29 run 1" });
-  const cleanup = h("input", { type: "checkbox", checked: true, onchange: (e) => { state.cleanup = e.target.checked; } });
+  const cleanup = h("input", { type: "checkbox", checked: false, onchange: (e) => { state.cleanup = e.target.checked; } });
   const stepsBox = h("div", { class: "steps-list" });
   const checkBox = h("div", {});
   const startBtn = h("button", { class: "primary", onclick: start }, "▶ Start run");
@@ -809,13 +826,14 @@ async function pageTools() {
         h("div", { class: "spacer" }),
         h("button", { onclick: () => runJob("tools/updates/check", {}, updBox, pageTools) }, "Check for updates")),
       h("div", { class: "small muted", style: "margin-top:6px" },
-        "Checks quay.io (built-in tools) and GitHub (tool packs) once a day by itself. Adding a version never removes the one you have: both stay installed, and each workflow step picks its version (Workflows → Edit → click a step → Version). A new version is marked untested until a run with it succeeds."),
+        "Checks quay.io (built-in tools) and GitHub (tool packs) once a day by itself. For a tool pack, its Updates setting says what counts: new releases, new commits on the main branch, or Auto (releases if the repo has any). Adding a version never removes the one you have: both stay installed, and each workflow step picks its version (Workflows → Edit → click a step → Version). A new version is marked untested until a run with it succeeds."),
       updBox),
     h("div", { class: "card" }, h("h2", { style: "margin-top:0" }, "Tool packs from git"),
       h("div", { class: "small muted" }, "A tool pack adds tools from another git repository, pinned to an exact commit, with its own container. Installed tools can be added to any workflow (Workflows → Edit → Add step)."),
       h("table", { class: "data", style: "margin-top:8px" }, h("tbody", {}, packs.map((p) => h("tr", {},
         h("td", {}, h("b", {}, p.name), h("div", { class: "muted small" }, p.description)),
-        h("td", { class: "small" }, h("a", { href: p.repo, target: "_blank", rel: "noopener" }, p.repo.replace("https://github.com/", "")), h("div", { class: "mono muted" }, "@ " + String(p.commit).slice(0, 12))),
+        h("td", { class: "small" }, h("a", { href: p.repo, target: "_blank", rel: "noopener" }, p.repo.replace("https://github.com/", "")), h("div", { class: "mono muted" }, "@ " + String(p.commit).slice(0, 12)),
+          packUpdatesSelect(p, (upd.tools || {})[p.tools[0]] || {})),
         h("td", { class: "small" }, p.tools.join(", ")),
         h("td", {}, p.installed ? [h("span", { class: "badge ok" }, "installed"), " ",
           h("button", { title: "Install again: rebuilds the container and replaces the pack's files (saved workflows are kept)",
@@ -830,6 +848,20 @@ async function pageTools() {
         h("td", { style: "width:40%" }, h("b", {}, t.name), h("div", { class: "muted small" }, t.description),
           h("div", { class: "muted small" }, t._source === "built-in" ? "built-in" : "from tool pack " + t._source)),
         h("td", {}, toolVersionsCell(t, (upd.tools || {})[t.id] || {})))))))));
+}
+// What counts as an update for a pack: release tags, the main branch, or Auto (releases if the repo has any).
+function packUpdatesSelect(p, u) {
+  const now = u.update_mode_effective ? ` (now: ${u.update_mode_effective === "releases" ? "releases" : "main branch"})` : "";
+  const sel = h("select", { title: "Which new versions of this pack count as an update" },
+    h("option", { value: "auto" }, "Auto" + now),
+    h("option", { value: "releases" }, "Releases only"),
+    h("option", { value: "main" }, "Main branch"));
+  sel.value = p.updates || "auto";
+  sel.addEventListener("change", async () => {
+    try { await api("packs/updates", { body: { id: p.id, mode: sel.value } }); pageTools(); }
+    catch (e) { toast("Not saved: " + e.message, 8000); }
+  });
+  return h("div", { class: "row", style: "margin-top:4px" }, h("span", { class: "muted" }, "Updates:"), sel);
 }
 // Installed versions as chips (× removes an added one), plus "newer available" and Add version….
 function toolVersionsCell(t, u) {
@@ -861,10 +893,10 @@ function addVersionDialog(t, u) {
   const newestHave = t.versions.reduce((a, v) => (verCmp(v.version, a) > 0 ? v.version : a), t.version);
   const rows = list.map((v) => {
     const installed = have.has(t.version_kind === "git" ? v.choice : v.version);
-    const newer = t.version_kind === "git" ? v.ref === "main" && !installed : verCmp(v.version, newestHave) > 0;
+    const newer = t.version_kind === "git" ? (u.newer_choices || []).includes(v.choice) && !installed : verCmp(v.version, newestHave) > 0;
     return h("tr", { class: installed ? "muted" : "" },
       h("td", { class: "mono small" }, v.label),
-      h("td", {}, installed ? h("span", { class: "badge gray" }, "installed") : newer ? h("span", { class: "badge run" }, t.version_kind === "git" ? "latest" : "newer") : null),
+      h("td", {}, installed ? h("span", { class: "badge gray" }, "installed") : newer ? h("span", { class: "badge run" }, v.ref === "main" ? "latest" : "newer") : null),
       h("td", {}, installed ? null : h("button", { class: newer ? "primary" : "", onclick: () => {
         put(jobBox); runJob("tools/versions/add", { tool: t.id, choice: v.choice }, jobBox, () => { close(); pageTools(); });
       } }, "Add")));
@@ -949,12 +981,14 @@ function updatesCard() {
     const fresh = u && u.checked && !u.error;
     put(box,
       cur ? h("div", { class: "kv" },
-        h("div", {}, "This version"), h("div", {}, h("span", { class: "mono" }, cur.commit), ` from ${cur.date}: ${cur.subject}`),
-        u.upstream ? [h("div", {}, "Compared with"), h("div", { class: "mono small" }, u.upstream)] : null) : null,
+        h("div", {}, "This version"), h("div", {}, u.current_release ? h("b", {}, u.current_release + " ") : null,
+          h("span", { class: "mono" }, cur.commit), ` from ${cur.date}: ${cur.subject}`),
+        u.upstream ? [h("div", {}, "Compared with"), h("div", { class: "small" },
+          u.release ? ["newest release on GitHub: ", h("b", {}, u.release)] : ["the ", h("span", { class: "mono" }, u.upstream), " branch (no release yet)"])] : null) : null,
       u && u.error ? warnBox({ level: "warning", message: u.error }) : null,
       fresh && !u.new.length ? h("div", { class: "warn info" }, "You have the latest version.") : null,
       u && (u.new || []).length ? [
-        h("h3", {}, `What's new: ${u.new.length} change${u.new.length > 1 ? "s" : ""} on GitHub`),
+        h("h3", {}, `What's new${u.release ? " in " + u.release : ""}: ${u.new.length} change${u.new.length > 1 ? "s" : ""} on GitHub`),
         h("div", { class: "small muted" }, "Read what each update fixes or adds before you update."),
         h("div", { class: "changes" }, u.new.map((c) => h("div", { class: "change" },
           h("div", {}, h("b", {}, c.subject), h("span", { class: "small muted" }, `  ${c.date} · ${c.commit}`)),
@@ -970,7 +1004,7 @@ function updatesCard() {
         "Updating downloads the new version of the pipeline from GitHub and restarts this page. Your saved workflows, runs, databases and tool packs are kept. Every run records which version produced it."));
   };
   const install = async (u) => {
-    if (!confirm(`Update to the newest version (${u.new.length} change${u.new.length > 1 ? "s" : ""})? The page restarts afterwards.`)) return;
+    if (!confirm(`Update to ${u.release || "the newest version"} (${u.new.length} change${u.new.length > 1 ? "s" : ""})? The page restarts afterwards.`)) return;
     put(box, h("div", { class: "warn info" }, "Updating…"));
     try {
       const r = await api("updates/install", { body: {} });
