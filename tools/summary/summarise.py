@@ -174,13 +174,20 @@ def bracken(in_dir, out_dir):
     write(out_dir, "bracken_output.tsv", rows)
 
 
+def staramr(in_dir, out_dir):
+    # no Galaxy text steps: staramr's own summary table (one line per sample), as it is
+    fs = [f for f in files(in_dir, "staramr") if f.name == "summary.tsv"]
+    if fs:
+        write(out_dir, "staramr_output.tsv", [r for r in read_rows(fs[0]) if r])
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--in-dir", type=Path, default=Path("."))
     ap.add_argument("--out-dir", type=Path, default=Path("out"))
     a = ap.parse_args(argv)
     a.out_dir.mkdir(parents=True, exist_ok=True)
-    for table in (mlst, sistr, abricate, quast, emmtyper, checkm_depth, bracken):
+    for table in (mlst, sistr, abricate, quast, emmtyper, checkm_depth, bracken, staramr):
         table(a.in_dir, a.out_dir)
     return 0
 

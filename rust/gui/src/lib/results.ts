@@ -143,6 +143,7 @@ export const TABLE_TITLES: Record<string, string> = {
   'checkm_depth_output.tsv': 'Completeness, contamination and depth (CheckM)',
   'depth_output.tsv': 'Sequencing depth',
   'bracken_output.tsv': 'Species abundance (Bracken)',
+  'staramr_output.tsv': 'AMR and plasmids (staramr)',
   'shigella_typing_report.tsv': 'Shigella typing (ShigaPass and Mykrobe)',
   'shigapass_report.tsv': 'ShigaPass',
   'mykrobe_report.tsv': 'Mykrobe (Shigella)',

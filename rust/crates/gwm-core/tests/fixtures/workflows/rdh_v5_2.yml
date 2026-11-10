@@ -145,3 +145,4 @@ steps:
       checkm: [checkm.results]
       shovill_log: [shovill.log]
       bracken: [bracken.abundance]
+      staramr: [staramr.summary]

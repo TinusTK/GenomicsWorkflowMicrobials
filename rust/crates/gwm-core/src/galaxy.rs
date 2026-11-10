@@ -31,6 +31,7 @@
 //!     step: {publish: summary}             # optional: added to every imported step
 //!     folds: [bgruening/text_processing]   # summary tools: Tool Shed repositories covered
 //!     sources: {mlst: {tool: mlst, output: report}}   # summary tools: what feeds each input
+//!                                          # (`always: true`: also with no Galaxy text step after it)
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
@@ -104,6 +105,9 @@ struct SourceSpec {
     output: String,
     #[serde(default)]
     settings: IndexMap<String, Value>,
+    /// connect it whenever such a step is there, also when Galaxy puts no text step after it
+    #[serde(default)]
+    always: bool,
 }
 
 fn galaxy_map(tool: &Tool) -> Option<GalaxyMap> {
@@ -846,13 +850,14 @@ pub fn analyze(ga_text: &str, tools: &IndexMap<String, Tool>, taken: &dyn Fn(&st
                         have.map(to_text) == Some(to_text(want))
                     });
                     let up_map = gmaps.get(&st.tool)?;
-                    let out = fed
+                    let edge = fed
                         .iter()
-                        .find(|(n, o)| *n == g.n && up_map.outputs.get(*o) == Some(&spec.output))?;
-                    same.then(|| (*out, format!("{sid}.{}", spec.output)))
+                        .find(|(n, o)| *n == g.n && up_map.outputs.get(*o) == Some(&spec.output))
+                        .copied();
+                    (same && (edge.is_some() || spec.always)).then(|| (edge, format!("{sid}.{}", spec.output)))
                 });
                 if let Some((edge, source)) = hit {
-                    wired.insert(edge);
+                    wired.extend(edge);
                     step.inputs.insert(input.clone(), vec![source]);
                 }
             }

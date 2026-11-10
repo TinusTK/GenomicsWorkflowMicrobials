@@ -23,6 +23,7 @@ inputs:
   checkm: {type: tsv, optional: true, description: CheckM results.}
   shovill_log: {type: log, optional: true, description: Shovill logs (sequencing depth).}
   bracken: {type: tsv, optional: true, description: Bracken abundance tables.}
+  staramr: {type: tsv, optional: true, description: staramr summary (one line per sample).}
 
 outputs:
   tables: {type: tsv, path: "out/*.tsv", optional: true, description: The Galaxy-style output tables.}
@@ -55,6 +56,8 @@ galaxy:
     checkm: {tool: checkm, output: results}
     shovill_log: {tool: shovill, output: log}
     bracken: {tool: bracken, output: abundance}
+    # Galaxy shows staramr's summary as it is, without text steps: always connect it
+    staramr: {tool: staramr, output: summary, always: true}
   step: {publish: summary}
 
 command: |
