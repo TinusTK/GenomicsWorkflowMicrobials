@@ -174,3 +174,25 @@ theirs from `containers/<name>/Dockerfile`, built and published by
 `.github/workflows/containers.yml` as `ghcr.io/tinustk/gwm-<name>:<version>`.
 A published version is never built over: change the version in the workflow
 file and in the tool's `tool.yml` together.
+
+## Summary tables: an input that takes any number of outputs
+
+The built-in **Summary tables** tool (`tools/summary_tables`) shows the tables
+of whatever steps are connected to it on a run's Results page, one table per
+connected output. Its one input is a `collect` input:
+
+```yaml
+inputs:
+  tables:
+    type: table
+    collect: true              # every connected source is used, not just the first that runs
+    accepts: [tsv, csv, tab]   # the output types that fit
+    optional: true
+```
+
+In a workflow, list as many sources as you like:
+`inputs: {tables: [mlst.report, abricate.report, staramr.summary]}`. The
+command finds one folder per source in `$IN_tables_DIR`, named
+`<step>.<output>`, and every sample id of the run in `$SAMPLES` (one per
+line). The RDH workflow keeps its own `summary` tool, which makes the tables
+exactly as Galaxy does.

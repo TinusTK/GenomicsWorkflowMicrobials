@@ -8,6 +8,8 @@
 //!   S_<setting>                   every setting, as text ('true'/'false' for booleans)
 //!   IN_<input>                    per-sample input file (reads: IN_<input>_1 / _2)
 //!   IN_<input>_DIR                all-sample input: folder holding every sample's file
+//!                                 (a `collect` input: one folder per source inside, <step>.<output>)
+//!   SAMPLES                       every sample id of the run, one per line
 //!   DB_<database>                 database folder
 //!   TOOL_DIR                      the tool's own folder (bundled scripts)
 //!   write results under out/; notes for provenance go in .ntg_notes ("key: value" lines; name kept from v1)
@@ -127,6 +129,13 @@ pub fn resolve<'a>(wf: &'a Workflow, tools: &'a IndexMap<String, Tool>) -> Resul
                 if !up_tool.is_some_and(|t| t.outputs.contains_key(out)) {
                     return err(format!("step {sid}: step {up} has no output '{out}'"));
                 }
+                let kind = up_tool.and_then(|t| t.outputs.get(out)).map_or("", |o| o.kind.as_str());
+                if spec.collect && !spec.accepts.is_empty() && !spec.accepts.iter().any(|a| a == kind) {
+                    return err(format!(
+                        "step {sid}: '{name}' takes {} files only, and {src} is a {kind} file",
+                        spec.accepts.join(", ")
+                    ));
+                }
             }
         }
         resolved.push(Resolved {
@@ -215,6 +224,9 @@ pub struct PlanStep {
 pub struct PlanInput {
     pub reads: bool,
     pub optional: bool,
+    /// every source whose step runs is used, not just the first
+    #[serde(default)]
+    pub collect: bool,
     /// first source whose step runs wins: "input" or "<step>.<output>"
     pub sources: Vec<String>,
 }
@@ -282,6 +294,7 @@ pub fn plan(
                         PlanInput {
                             reads: spec.kind == "reads",
                             optional: spec.optional,
+                            collect: spec.collect,
                             sources: step.inputs.get(n).cloned().unwrap_or_default(),
                         },
                     )

@@ -54,6 +54,12 @@ pub struct InputSpec {
     pub kind: String,
     #[serde(default)]
     pub optional: bool,
+    /// Takes every connected source (any number), not just the first that runs
+    #[serde(default)]
+    pub collect: bool,
+    /// With `collect`: the output types that fit (e.g. tsv, csv)
+    #[serde(default)]
+    pub accepts: Vec<String>,
     #[serde(default)]
     pub description: String,
 }

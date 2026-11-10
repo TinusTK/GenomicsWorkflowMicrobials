@@ -1,0 +1,35 @@
+id: summary_tables
+name: Summary tables
+version: "1.0"
+category: Reports
+description: >-
+  Shows the tables of any tools you connect to it on the run's Results page,
+  one table per connected output. A table a tool makes for each sample becomes
+  one table with every sample's rows; a table made once for the whole run is
+  shown as it is. Connect as many outputs as you like; only table files
+  (tsv, csv) fit.
+license: MIT
+container: quay.io/biocontainers/python:3.12.12
+scope: all_samples
+resources: {cpus: 1, memory_gb: 1}
+requirements: {memory_gb: 1}
+files: [combine.py]
+
+inputs:
+  tables:
+    type: table
+    # takes every connected output, not just the first one that runs
+    collect: true
+    accepts: [tsv, csv, tab]
+    optional: true
+    description: Any number of table outputs from other steps.
+
+outputs:
+  tables: {type: tsv, path: "out/*.tsv", optional: true, description: One table per connected output.}
+
+settings: {}
+
+version_command: python3 --version 2>&1 | sed 's/^Python //'
+
+command: |
+  python3 "$TOOL_DIR/combine.py" --in-dir "$IN_tables_DIR" --out-dir out

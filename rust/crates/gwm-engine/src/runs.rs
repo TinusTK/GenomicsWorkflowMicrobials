@@ -547,6 +547,9 @@ pub fn detail(cat: &Catalog, run_id: &str) -> Result<Value> {
                             "per_sample": s["per_sample"], "enabled": s["enabled"], "runnable": s["runnable"],
                             "inputs": sources,
                             "tool_id": s["tool_id"], "publish": s["publish"], "outputs": s["outputs"], "wiring": wiring,
+                            "collect": s["inputs"].as_object().map(|m| {
+                                m.iter().filter(|(_, i)| i["collect"] == true).map(|(k, _)| k.clone()).collect::<Vec<_>>()
+                            }),
                         })
                     })
                     .collect()

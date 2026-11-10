@@ -156,11 +156,14 @@
     for (const s of steps) {
       const state = stateOf(s);
       for (const [inp, srcs] of Object.entries(wiring(s))) {
-        // the source in use: the first one whose step runs
-        const src = srcs.find((x) => x === INPUT || byId.get(x.split('.')[0])?.runnable) ?? srcs[0];
-        if (!src) continue;
-        const [from, out] = src === INPUT ? [INPUT, 'reads'] : src.split('.');
-        es.push({ id: `${src}->${s.id}.${inp}`, source: from, sourceHandle: out, target: s.id, targetHandle: inp, animated: state === 'running', style: LINE[state] });
+        // the source in use: the first one whose step runs (every one, for an input that takes them all)
+        const runs = srcs.filter((x) => x === INPUT || byId.get(x.split('.')[0])?.runnable);
+        const used = (s.collect ?? []).includes(inp) ? runs : [runs[0] ?? srcs[0]];
+        for (const src of used) {
+          if (!src) continue;
+          const [from, out] = src === INPUT ? [INPUT, 'reads'] : src.split('.');
+          es.push({ id: `${src}->${s.id}.${inp}`, source: from, sourceHandle: out, target: s.id, targetHandle: inp, animated: state === 'running', style: LINE[state] });
+        }
       }
     }
     edges = es;
@@ -186,7 +189,7 @@
     const steps = run?.plan_steps ?? [];
     if (!steps.some((s) => s.publish)) return paths.filter((p) => p.startsWith('summary/') && p.endsWith('.tsv')); // runs of older versions
     return steps
-      .filter((s) => (s.publish ?? '').startsWith('summary'))
+      .filter((s) => (s.publish ?? '').startsWith('summary') || s.tool_id === SUMMARY_TABLES)
       .flatMap((s) => stepFiles(s, 'all', paths, hidden[s.tool_id ?? '']))
       .filter((p) => p.endsWith('.tsv'))
       .sort((a, b) => a.split('/').length - b.split('/').length); // the main tables first
@@ -195,6 +198,17 @@
   const TINTS = ['#0f766e', '#6d28d9', '#b45309', '#1d4ed8', '#be185d', '#15803d', '#0e7490', '#a16207'];
   const tint = (i: number) => TINTS[i % TINTS.length];
   const asked = new Set<string>();
+  /** the general Summary tables tool: its tables are named <step>.<output>.tsv after what was connected */
+  const SUMMARY_TABLES = 'summary_tables';
+  function tableTitle(p: string) {
+    const name = p.split('/').pop()!;
+    const from = run?.plan_steps?.find((s) => name.startsWith(s.id + '.'));
+    const folder = p.slice(0, p.length - name.length - 1);
+    const mine = run?.plan_steps?.some((s) => s.tool_id === SUMMARY_TABLES && (s.publish ?? '') === folder);
+    if (!from || !mine) return titleOf(p);
+    const rest = name.slice(from.id.length + 1).replace(/\.tsv$/, '');
+    return Object.keys(from.outputs ?? {}).length > 1 ? `${from.label} · ${rest}` : from.label;
+  }
   $effect(() => {
     const rid = run?.id;
     if (!rid) return;
@@ -463,7 +477,7 @@
                 class="m-0 rounded-full px-3 py-1 text-[14px] font-semibold"
                 style="color: {tint(i)}; background: color-mix(in srgb, {tint(i)} 11%, transparent)"
               >
-                {titleOf(p)}
+                {tableTitle(p)}
               </h3>
               <span class="text-xs text-muted">{p}</span>
               <Button size="sm" class="ml-auto" icon="download" href={fileUrl(run.id, p, true)}>Download</Button>

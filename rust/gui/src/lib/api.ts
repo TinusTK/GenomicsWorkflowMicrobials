@@ -121,7 +121,8 @@ export interface Tool {
   description?: string;
   container: string;
   scope: string;
-  inputs: Record<string, { type: string; optional: boolean; description: string }>;
+  /** `collect`: takes every connected source (any number) whose type is in `accepts` */
+  inputs: Record<string, { type: string; optional: boolean; description: string; collect?: boolean; accepts?: string[] }>;
   outputs: Record<string, { type: string; path: string; optional: boolean; description: string }>;
   settings: Record<string, SettingSpec>;
   databases: string[];
@@ -230,6 +231,8 @@ export interface PlanStep {
   outputs?: Record<string, { path: string; optional: boolean }>;
   /** input -> its sources (`input` or `<step>.<output>`), first that runs wins */
   wiring?: Record<string, string[]>;
+  /** inputs that use every source, not just the first that runs */
+  collect?: string[];
 }
 
 export interface RunDetail extends RunSummary {

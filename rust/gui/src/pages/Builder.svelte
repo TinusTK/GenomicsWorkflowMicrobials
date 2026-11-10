@@ -12,7 +12,7 @@
   import Pill from '../lib/ui/Pill.svelte';
   import Toggle from '../lib/ui/Toggle.svelte';
   import { get, post, type Tool, type Workflow, type WorkflowView } from '../lib/api';
-  import { addStep, candidates, INPUT, label as srcLabel, layout, problems, removeStep, slug, sourceType } from '../lib/builder';
+  import { addStep, candidates, downstream, INPUT, label as srcLabel, layout, problems, removeStep, slug, sourceType } from '../lib/builder';
   import { go, href } from '../lib/router.svelte';
   import { errorText, toasts } from '../lib/toast.svelte';
 
@@ -102,7 +102,9 @@
     const es: Edge[] = [];
     for (const [sid, st] of Object.entries(wf.steps))
       for (const [inp, srcs] of Object.entries(st.inputs ?? {}))
-        srcs.forEach((src, i) => {
+        srcs.forEach((src, n) => {
+          // an input that takes every source has no "else": each line counts
+          const i = tools[st.tool]?.inputs[inp]?.collect ? 0 : n;
           const [from, out] = src === INPUT ? [INPUT, 'reads'] : src.split('.');
           es.push({
             id: `${src}->${sid}.${inp}`,
@@ -146,11 +148,23 @@
     if (!wf || !c.target || c.target === INPUT || !c.targetHandle) return false;
     const src = c.source === INPUT ? INPUT : `${c.source}.${c.sourceHandle}`;
     const t = tools[wf.steps[c.target]?.tool];
+    const spec = t?.inputs[c.targetHandle];
+    if (spec?.collect) {
+      // any number of sources, as long as each is a kind of file it takes and no loop is made
+      const kind = sourceType(wf, tools, src);
+      return !!kind && (spec.accepts ?? []).includes(kind) && c.source !== c.target && !downstream(wf, c.target).has(c.source);
+    }
     return sourceType(wf, tools, src) === t?.inputs[c.targetHandle]?.type && candidates(wf, tools, c.target, t.inputs[c.targetHandle].type).includes(src);
   }
   function onconnect(c: Connection) {
     if (!valid(c)) {
-      toasts.show('Those don\'t fit together: the output and input are different kinds of file (or it would make a loop).', 'error');
+      const spec = wf && c.targetHandle ? tools[wf.steps[c.target]?.tool]?.inputs[c.targetHandle] : undefined;
+      toasts.show(
+        spec?.collect
+          ? `Only tables fit here (${(spec.accepts ?? []).join(', ')} files). That output is another kind of file.`
+          : 'Those don\'t fit together: the output and input are different kinds of file (or it would make a loop).',
+        'error',
+      );
       rebuild();
       return;
     }
@@ -159,7 +173,8 @@
       const st = w.steps[c.target];
       st.inputs ??= {};
       const list = st.inputs[c.targetHandle!] ?? [];
-      if (!list.includes(src)) st.inputs[c.targetHandle!] = [src, ...list];
+      const collect = tools[st.tool]?.inputs[c.targetHandle!]?.collect;
+      if (!list.includes(src)) st.inputs[c.targetHandle!] = collect ? [...list, src] : [src, ...list];
     });
   }
   function ondelete({ nodes: ns, edges: es }: { nodes: Node[]; edges: Edge[] }) {
@@ -409,7 +424,8 @@
           <div class="flex flex-col gap-1.5 border-t border-line pt-3.5">
             <span class="text-[13px] font-semibold">Gets its input from</span>
             {#each Object.entries(selTool.inputs) as [inp, spec]}
-              <span class="text-[13px] text-ink-2"><strong>{inp}</strong>: {(sel.inputs?.[inp] ?? []).map((s) => srcLabel(wf!, tools, s)).join(', else ') || (spec.optional ? 'nothing (optional)' : 'not connected')}</span>
+              <span class="text-[13px] text-ink-2"><strong>{inp}</strong>: {(sel.inputs?.[inp] ?? []).map((s) => srcLabel(wf!, tools, s)).join(spec.collect ? ', ' : ', else ') ||
+                  (spec.collect ? 'nothing yet: drag any table output onto it' : spec.optional ? 'nothing (optional)' : 'not connected')}</span>
             {/each}
           </div>
         {/if}

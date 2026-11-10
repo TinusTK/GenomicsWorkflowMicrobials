@@ -21,7 +21,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Local};
 use globset::GlobBuilder;
-use gwm_core::compiler::{PlanStep, INPUT};
+use gwm_core::compiler::{PlanInput, PlanStep, INPUT};
 use gwm_core::reads::Sample;
 use gwm_core::Plan;
 use indexmap::IndexMap;
@@ -150,6 +150,18 @@ fn pick(plan: &Plan, sources: &[String]) -> Option<Source> {
     None
 }
 
+/// The sources an input reads: the first that runs, or (a `collect` input) every one that runs.
+fn picks(plan: &Plan, input: &PlanInput) -> Vec<Source> {
+    if !input.collect {
+        return pick(plan, &input.sources).into_iter().collect();
+    }
+    input
+        .sources
+        .iter()
+        .filter_map(|s| pick(plan, std::slice::from_ref(s)))
+        .collect()
+}
+
 fn sq(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
@@ -246,8 +258,9 @@ impl<'a> Executor<'a> {
                 let mut deps = Vec::new();
                 let mut possible = true;
                 for input in step.inputs.values() {
-                    match pick(plan, &input.sources) {
-                        Some(Source::Step(up, _)) => {
+                    for source in picks(plan, input) {
+                        let Source::Step(up, _) = source else { continue };
+                        {
                             if step.per_sample {
                                 // a per-sample input from an all-sample step never matches a sample
                                 match index.get(&(up, sample)) {
@@ -258,7 +271,6 @@ impl<'a> Executor<'a> {
                                 deps.extend(index.iter().filter(|((s, _), _)| *s == up).map(|(_, &t)| t));
                             }
                         }
-                        Some(Source::Reads) | None => {}
                     }
                 }
                 // task order, so the hash and the staged files never depend on map order
@@ -367,6 +379,15 @@ impl<'a> Executor<'a> {
             format!("export SAMPLE={} CPUS={cpus} MEM_GB={memory_gb}", sq(&tag)),
             format!("export TOOL_DIR=\"$PWD/tooldir\" STEP={}", sq(&step.id)),
             "mkdir -p out tooldir".to_string(),
+            format!(
+                "export SAMPLES={}",
+                sq(&spec
+                    .samples
+                    .iter()
+                    .map(|s| s.sample.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n"))
+            ),
         ];
         for (k, v) in &step.settings {
             env.push(format!("export S_{k}={}", sq(v)));
@@ -377,6 +398,20 @@ impl<'a> Executor<'a> {
         key.update(serde_json::to_vec(step)?);
         key.update(format!("|{tag}|{cpus}|{memory_gb}|"));
         for (name, input) in &step.inputs {
+            if input.collect {
+                // every connected source that runs, each in its own folder <step>.<output>
+                env.push(format!("mkdir -p in_{name}; export IN_{name}_DIR=\"$PWD/in_{name}\""));
+                for src in &input.sources {
+                    if pick(&spec.plan, std::slice::from_ref(src)).is_none() {
+                        continue;
+                    }
+                    for f in self.input_files(t, std::slice::from_ref(src)).unwrap_or_default() {
+                        let base = f.file_name().unwrap_or_default().to_string_lossy();
+                        staged.push((format!("in_{name}/{src}/{base}"), f.clone()));
+                    }
+                }
+                continue;
+            }
             let Some(files) = self.input_files(t, &input.sources) else {
                 return Ok(None); // an optional output this sample did not make
             };

@@ -86,6 +86,33 @@ steps:
   combine: {tool: combine, publish: summary, inputs: {counts: [count.report], opt: [extra.done]}}
 "#,
     );
+    w(
+        "tools/gather/tool.yml",
+        r#"id: gather
+name: Gather
+version: 1
+container: none
+scope: all_samples
+inputs:
+  tables: {type: table, collect: true, accepts: [tsv], optional: true}
+outputs:
+  list: {type: txt, path: out/list.txt}
+command: |
+  (cd "$IN_tables_DIR" && find . -type f -o -type l | sort) > out/list.txt
+  echo "$SAMPLES" | tr '\n' ' ' >> out/list.txt
+"#,
+    );
+    w(
+        "workflows/gathered/workflow.yml",
+        r#"id: gathered
+name: Gathered
+steps:
+  count: {tool: count, inputs: {reads: [input]}}
+  combine: {tool: combine, inputs: {counts: [count.report]}}
+  off: {tool: combine, enabled: false, inputs: {counts: [count.report]}}
+  gather: {tool: gather, publish: summary, inputs: {tables: [count.report, combine.table, off.table]}}
+"#,
+    );
     let reads = base.join("reads");
     fs::create_dir_all(&reads).unwrap();
     for s in ["A", "B10", "B2"] {
@@ -128,6 +155,38 @@ fn runs_workflow_and_writes_results() {
     assert_eq!(prov["tools"]["count"], "9.9");
     assert_eq!(prov["containers"]["STEP_combine"]["image"], "none");
     assert_eq!(runs::list(&cat).len(), 1);
+}
+
+#[test]
+fn collect_input_takes_every_source_that_runs() {
+    let (cat, reads) = setup("collect");
+    let stop = AtomicBool::new(false);
+    let run = runs::start(
+        &cat,
+        "gathered",
+        &reads,
+        &StartOptions::default(),
+        &Local,
+        &stop,
+        &|_| {},
+    )
+    .unwrap();
+    assert_eq!(run["status"], "succeeded", "{}", run["error"]);
+    let results = PathBuf::from(run["results"].as_str().unwrap());
+    assert_eq!(
+        read(&results.join("summary/list.txt")),
+        "./combine.table/table.tsv\n./count.report/A.count.tsv\n./count.report/B10.count.tsv\n./count.report/B2.count.tsv\nA B2 B10 "
+    );
+
+    // only tables fit
+    let tools = cat.load_tools().unwrap();
+    let mut wf = cat.load_workflow("gathered", None).unwrap();
+    wf.steps["gather"].inputs["tables"].push("count.extra".into());
+    let e = compiler::resolve(&wf, &tools).unwrap_err().to_string();
+    assert_eq!(
+        e,
+        "step gather: 'tables' takes tsv files only, and count.extra is a txt file"
+    );
 }
 
 #[test]
