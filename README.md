@@ -10,6 +10,10 @@ workflows from the same tools or from tools you add.
 - **Every run in one folder** with its results and a record of exactly what ran.
 - **Add tools from GitHub** and **import workflows from Galaxy**.
 
+![The Home page: start a run, build a workflow or add a tool](docs/images/home.png)
+
+![The built-in RDH version 6 workflow in the workflow builder](docs/images/workflow.png)
+
 > **Version 2.** Version 1 (the browser app started with `./ntg`) has ended;
 > its saved workflows, databases and results are kept.
 
