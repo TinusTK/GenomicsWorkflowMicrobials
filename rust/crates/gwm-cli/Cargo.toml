@@ -17,3 +17,5 @@ gwm-core.workspace = true
 gwm-engine.workspace = true
 ctrlc = "3"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+gwm-server.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

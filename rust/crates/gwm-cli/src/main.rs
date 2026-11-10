@@ -33,9 +33,9 @@ enum Cmd {
         /// switch a step off (repeat for more)
         #[arg(long = "step-off")]
         steps_off: Vec<String>,
-        /// delete the work folder after a successful run
+        /// keep the working files after a successful run (troubleshooting)
         #[arg(long)]
-        cleanup: bool,
+        keep_work: bool,
         /// CPU threads for all steps together (0 = all)
         #[arg(long, default_value_t = 0)]
         max_cpus: u32,
@@ -45,6 +45,20 @@ enum Cmd {
     },
     /// Run a stopped or failed run again; finished steps are reused
     Resume { run_id: String },
+    /// Start the app's local server (the GUI talks to it)
+    Serve {
+        #[arg(long, default_value_t = 8642)]
+        port: u16,
+        /// also serve the built GUI from this folder (open it in a browser)
+        #[arg(long)]
+        gui: Option<PathBuf>,
+        /// listen on every network address, not only this computer
+        #[arg(long)]
+        public: bool,
+    },
+    /// Run a prepared run (the app starts this in its own process)
+    #[command(hide = true)]
+    Exec { run_id: String },
     /// List runs
     Runs,
     /// Print the run plan of a workflow as JSON
@@ -104,13 +118,23 @@ fn main() -> Result<()> {
     }
     let cat = Catalog::default();
     match Cli::parse().cmd {
+        Cmd::Serve { port, gui, public } => {
+            let ip = if public { [0, 0, 0, 0] } else { [127, 0, 0, 1] };
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(gwm_server::serve((ip, port).into(), cat, gui))?;
+        }
+        Cmd::Exec { run_id } => {
+            let stop = stop_on_ctrl_c()?;
+            let backend = backend::detect();
+            finish(&runs::resume(&cat, &run_id, backend.as_ref(), &stop, &progress)?);
+        }
         Cmd::Run {
             workflow,
             input,
             version,
             name,
             steps_off,
-            cleanup,
+            keep_work,
             max_cpus,
             max_memory_gb,
         } => {
@@ -118,7 +142,7 @@ fn main() -> Result<()> {
             let opts = StartOptions {
                 name,
                 version,
-                cleanup,
+                cleanup: !keep_work,
                 steps_off,
                 max_cpus,
                 max_memory_gb,

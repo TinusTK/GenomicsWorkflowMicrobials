@@ -28,3 +28,19 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
+  gui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust/gui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: rust/gui/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build

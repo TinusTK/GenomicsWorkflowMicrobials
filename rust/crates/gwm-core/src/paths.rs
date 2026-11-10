@@ -48,11 +48,64 @@ fn user_home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// The user's own home folder, when there is one.
+pub fn user_home_dir() -> Option<PathBuf> {
+    dirs::home_dir()
+}
+
 /// The user's data folder: `GWM_HOME`, else `~/.gwm`.
 pub fn home() -> PathBuf {
     var("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| user_home().join(".gwm"))
+}
+
+/// Where run folders go: `GWM_RUNS_DIR`, else Documents › Genomics Workflow
+/// Microbials (on Windows the Windows Documents folder, also when the engine
+/// runs inside WSL). One folder per run, so it is easy to find and delete.
+pub fn runs_root() -> PathBuf {
+    if let Some(r) = var("RUNS_DIR") {
+        return native_path(&r.to_string_lossy());
+    }
+    let docs = windows_documents()
+        .or_else(dirs::document_dir)
+        .unwrap_or_else(|| user_home().join("Documents"));
+    docs.join("Genomics Workflow Microbials")
+}
+
+/// Inside WSL: the Windows user's Documents folder (as /mnt/c/...).
+fn windows_documents() -> Option<PathBuf> {
+    if !is_wsl() {
+        return None;
+    }
+    let out = std::process::Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "[Environment]::GetFolderPath('MyDocuments')",
+        ])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !text.is_empty()).then(|| native_path(&text))
+}
+
+pub fn is_wsl() -> bool {
+    cfg!(target_os = "linux")
+        && fs::read_to_string("/proc/version").is_ok_and(|v| v.to_lowercase().contains("microsoft"))
+}
+
+/// A path typed or picked on Windows (`C:\Lab\Reads`) as the engine sees it:
+/// under WSL `/mnt/c/Lab/Reads`; anything else unchanged.
+pub fn native_path(p: &str) -> PathBuf {
+    let b = p.as_bytes();
+    let drive = b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':';
+    if cfg!(target_os = "linux") && drive {
+        let rest = p[2..].replace('\\', "/");
+        return PathBuf::from(format!("/mnt/{}{}", (b[0] as char).to_ascii_lowercase(), rest));
+    }
+    PathBuf::from(p)
 }
 
 /// Reference databases: `GWM_DB_DIR`, else `<home>/databases`.
@@ -86,6 +139,13 @@ fn migrate(old: &Path, new: &Path) -> io::Result<Option<PathBuf>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn windows_paths() {
+        assert_eq!(native_path(r"C:\Lab\Reads 1"), PathBuf::from("/mnt/c/Lab/Reads 1"));
+        assert_eq!(native_path("/home/lab"), PathBuf::from("/home/lab"));
+    }
 
     #[test]
     fn moves_old_folder_once() {

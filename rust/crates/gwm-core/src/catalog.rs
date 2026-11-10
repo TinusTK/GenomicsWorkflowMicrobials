@@ -275,6 +275,8 @@ pub struct Database {
 pub struct Catalog {
     pub root: PathBuf,
     pub home: PathBuf,
+    /// where run folders go (Documents, Genomics Workflow Microbials)
+    pub runs: PathBuf,
 }
 
 impl Default for Catalog {
@@ -282,6 +284,7 @@ impl Default for Catalog {
         Catalog {
             root: paths::root(),
             home: paths::home(),
+            runs: paths::runs_root(),
         }
     }
 }
@@ -324,10 +327,13 @@ fn glob_files(dir: &Path, depth: usize, name: &str) -> Vec<PathBuf> {
 }
 
 impl Catalog {
+    /// Run folders go in `<home>/runs` (tests); [`Catalog::default`] uses Documents.
     pub fn new(root: impl Into<PathBuf>, home: impl Into<PathBuf>) -> Self {
+        let home = home.into();
         Catalog {
             root: root.into(),
-            home: home.into(),
+            runs: home.join("runs"),
+            home,
         }
     }
 

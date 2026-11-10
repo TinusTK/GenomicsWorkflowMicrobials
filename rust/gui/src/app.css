@@ -1,0 +1,159 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+@import 'tailwindcss';
+
+/* Design tokens: one set of colours for every screen (light and dark). */
+:root {
+  --ground: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f9fafb;
+  --line: #e3e6eb;
+  --line-strong: #d1d5db;
+  --ink: #111827;
+  --ink-2: #374151;
+  --muted: #4b5563;
+  --brand: #0f766e;
+  --brand-hover: #115e59;
+  --brand-soft: #e6f4f2;
+  --brand-softer: #f3fbfa;
+  --on-brand: #ffffff;
+  --warn: #b45309;
+  --warn-soft: #fffbeb;
+  --warn-line: #fde68a;
+  --warn-ink: #78350f;
+  --danger: #b91c1c;
+  --danger-soft: #fef2f2;
+  --danger-line: #fca5a5;
+  --ok: #15803d;
+  --ok-soft: #f0fdf4;
+  --ok-ink: #166534;
+  --info: #1d4ed8;
+  --info-soft: #dbeafe;
+  --info-ink: #1e40af;
+  --hover: #eef1f4;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0d1117;
+    --surface: #161b22;
+    --surface-2: #1c2128;
+    --line: #2d333b;
+    --line-strong: #444c56;
+    --ink: #e6edf3;
+    --ink-2: #c9d1d9;
+    --muted: #9aa4b0;
+    --brand: #2dd4bf;
+    --brand-hover: #5eead4;
+    --brand-soft: #12302d;
+    --brand-softer: #0f2421;
+    --on-brand: #04201d;
+    --warn: #f59e0b;
+    --warn-soft: #2b2111;
+    --warn-line: #5c4415;
+    --warn-ink: #fcd34d;
+    --danger: #f87171;
+    --danger-soft: #2c1517;
+    --danger-line: #7f2d2d;
+    --ok: #4ade80;
+    --ok-soft: #12261a;
+    --ok-ink: #86efac;
+    --info: #60a5fa;
+    --info-soft: #172554;
+    --info-ink: #bfdbfe;
+    --hover: #22272e;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --font-sans: Inter, system-ui, sans-serif;
+  --font-display: 'Space Grotesk', Inter, sans-serif;
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-softer: var(--brand-softer);
+  --color-on-brand: var(--on-brand);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-warn-line: var(--warn-line);
+  --color-warn-ink: var(--warn-ink);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-line: var(--danger-line);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-ok-ink: var(--ok-ink);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-info-ink: var(--info-ink);
+  --color-hover: var(--hover);
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--brand) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.input {
+  height: 42px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 14px Inter, sans-serif;
+}
+
+.label-caps {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+table.data th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--surface-2);
+  padding: 10px 14px;
+  white-space: nowrap;
+}
+table.data td {
+  padding: 11px 14px;
+  border-top: 1px solid var(--line);
+  vertical-align: top;
+}

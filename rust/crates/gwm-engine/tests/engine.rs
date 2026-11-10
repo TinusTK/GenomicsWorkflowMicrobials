@@ -188,3 +188,36 @@ fn failed_task_fails_the_run() {
         "{err}"
     );
 }
+
+#[test]
+fn one_folder_per_run_and_orphan_work_cleanup() {
+    let (cat, reads) = setup("folders");
+    let stop = AtomicBool::new(false);
+    let opts = StartOptions {
+        name: Some("Week 45: controls".into()),
+        cleanup: false,
+        ..StartOptions::default()
+    };
+    let run = runs::start(&cat, "mini", &reads, &opts, &Local, &stop, &|_| {}).unwrap();
+    let id = run["id"].as_str().unwrap();
+    assert!(id.ends_with(" Week 45- controls"), "{id}");
+    let folder = cat.runs.join(id);
+    for p in [
+        "run.json",
+        "README.txt",
+        "Results/summary/table.tsv",
+        "Run details/plan.json",
+        "Run details/samples.csv",
+    ] {
+        assert!(folder.join(p).exists(), "{p} in the run folder");
+    }
+    let work = PathBuf::from(run["work"].as_str().unwrap());
+    assert!(work.is_dir(), "kept: cleanup off");
+    assert_eq!(runs::clean_orphan_work(&cat), 0, "run folder still there");
+    fs::remove_dir_all(&folder).unwrap(); // deleted by hand
+    assert_eq!(runs::clean_orphan_work(&cat), 1);
+    assert!(!work.exists());
+
+    let run = runs::start(&cat, "mini", &reads, &StartOptions::default(), &Local, &stop, &|_| {}).unwrap();
+    assert_eq!(run["work_deleted"], true, "working files go after a successful run");
+}

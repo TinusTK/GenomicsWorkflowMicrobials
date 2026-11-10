@@ -2,7 +2,7 @@
 # The Python app in app/ stays until this one passes the same test runs.
 [workspace]
 resolver = "2"
-members = ["crates/gwm-core", "crates/gwm-engine", "crates/gwm-cli"]
+members = ["crates/gwm-core", "crates/gwm-engine", "crates/gwm-server", "crates/gwm-cli"]
 
 [workspace.package]
 version = "2.0.0-dev"
@@ -22,3 +22,4 @@ dirs = "6"
 clap = { version = "4", features = ["derive"] }
 gwm-core = { path = "crates/gwm-core" }
 gwm-engine = { path = "crates/gwm-engine" }
+gwm-server = { path = "crates/gwm-server" }

@@ -1,0 +1,22 @@
+[package]
+name = "gwm-server"
+description = "The app's local JSON API (the GUI talks to it) and its background jobs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+indexmap.workspace = true
+gwm-core.workspace = true
+gwm-engine.workspace = true
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+sysinfo = { version = "0.37", default-features = false, features = ["system", "disk"] }
+ureq = "2"
+flate2 = "1"
+tar = "0.4"
