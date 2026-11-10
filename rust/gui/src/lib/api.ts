@@ -228,6 +228,8 @@ export interface PlanStep {
   /** results folder, `{sample}` = the sample */
   publish?: string;
   outputs?: Record<string, { path: string; optional: boolean }>;
+  /** input -> its sources (`input` or `<step>.<output>`), first that runs wins */
+  wiring?: Record<string, string[]>;
 }
 
 export interface RunDetail extends RunSummary {

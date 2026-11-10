@@ -2,7 +2,11 @@
   // One run: live progress, the pipeline with a square per sample (click a step
   // for its own output), one results table per tool, files, details.
   import { onDestroy, untrack } from 'svelte';
+  import { Background, Controls, SvelteFlow, type Edge, type Node } from '@xyflow/svelte';
+  import '@xyflow/svelte/dist/style.css';
   import PageHeader from '../lib/PageHeader.svelte';
+  import StepNode from '../lib/StepNode.svelte';
+  import { INPUT, layout } from '../lib/builder';
   import Button from '../lib/ui/Button.svelte';
   import Dialog from '../lib/ui/Dialog.svelte';
   import Icon from '../lib/ui/Icon.svelte';
@@ -23,6 +27,8 @@
   let tables = $state<Record<string, Table>>({});
   /** {tool: outputs switched off on the Tools page} */
   let hidden = $state<Record<string, string[]>>({});
+  /** {tool: its category}, for the coloured tag on each box */
+  let categories = $state<Record<string, string>>({});
   /** the picked step's tables, by view */
   let selTables = $state<Record<string, Table>>({});
   let selFile = $state('');
@@ -57,7 +63,10 @@
     }
   }
   get<Tool[]>('/api/tools')
-    .then((t) => (hidden = Object.fromEntries(t.map((x) => [x.id, x.hidden_outputs]))))
+    .then((t) => {
+      hidden = Object.fromEntries(t.map((x) => [x.id, x.hidden_outputs]));
+      categories = Object.fromEntries(t.map((x) => [x.id, x.category ?? 'Tool']));
+    })
     .catch(() => {});
 
   load();
@@ -69,7 +78,7 @@
   const COLORS: Record<string, string> = {
     COMPLETED: 'bg-ok',
     CACHED: 'bg-ok',
-    RUNNING: 'bg-info animate-pulse',
+    RUNNING: 'bg-[#ef4444] animate-pulse',
     SUBMITTED: 'bg-info/40',
     FAILED: 'bg-danger',
     ABORTED: 'bg-warn',
@@ -77,36 +86,85 @@
   };
   const dot = (status?: string) => COLORS[status ?? ''] ?? 'bg-line-strong';
 
-  /** columns of steps: each step one column right of the steps it reads from */
-  const columns = $derived.by(() => {
-    const steps = run?.plan_steps ?? [];
-    const depth = new Map<string, number>();
-    const byId = new Map(steps.map((s) => [s.id, s]));
-    const d = (s: PlanStep, seen = new Set<string>()): number => {
-      if (depth.has(s.id)) return depth.get(s.id)!;
-      if (seen.has(s.id)) return 0;
-      seen.add(s.id);
-      let best = 1;
-      for (const src of s.inputs) {
-        const up = byId.get(src.split('.')[0]);
-        if (up && up.runnable) best = Math.max(best, d(up, seen) + 1);
-      }
-      depth.set(s.id, best);
-      return best;
-    };
-    steps.forEach((s) => d(s));
-    const cols: PlanStep[][] = [];
-    for (const s of steps) {
-      const c = s.runnable ? depth.get(s.id)! : 1;
-      (cols[c] ??= []).push(s);
-    }
-    return cols.filter(Boolean);
-  });
-
   function tasksOf(s: PlanStep) {
     const t = run?.steps?.[s.id]?.tasks ?? {};
     return s.per_sample ? (run?.samples ?? []).map((smp) => ({ tag: smp, ...t[smp] })) : [{ tag: 'all', ...t['all'] }];
   }
+
+  /** How far a step is, from its tasks: running as soon as one sample is being worked on. */
+  function stateOf(s: PlanStep): 'off' | 'waiting' | 'running' | 'done' | 'failed' {
+    if (!s.runnable) return 'off';
+    const st = tasksOf(s).map((t) => t.status ?? '');
+    if (st.some((x) => x === 'FAILED' || x === 'ABORTED')) return 'failed';
+    if (st.some((x) => x === 'RUNNING')) return 'running';
+    if (st.length && st.every((x) => x === 'SKIPPED')) return 'off';
+    if (st.length && st.every((x) => ['COMPLETED', 'CACHED', 'SKIPPED'].includes(x))) return 'done';
+    // between two samples of the same step it is still that step's turn
+    return active && st.some((x) => x === 'COMPLETED' || x === 'CACHED' || x === 'SUBMITTED') ? 'running' : 'waiting';
+  }
+
+  // the pipeline drawn like the workflow builder: boxes joined by lines. A line
+  // glows red while the step it leads to is working and turns green when it is done.
+  const nodeTypes = { step: StepNode };
+  let nodes = $state.raw<Node[]>([]);
+  let edges = $state.raw<Edge[]>([]);
+  const LINE = {
+    running: 'stroke: #ef4444; stroke-width: 3; filter: drop-shadow(0 0 5px rgba(239, 68, 68, 0.9))',
+    done: 'stroke: var(--ok); stroke-width: 2.5',
+    failed: 'stroke: var(--danger); stroke-width: 2.5',
+    waiting: 'stroke: var(--line-strong); stroke-width: 2',
+    off: 'stroke: var(--line-strong); stroke-width: 1.5; stroke-dasharray: 6 5',
+  };
+  $effect(() => {
+    const steps = run?.plan_steps ?? [];
+    const byId = new Map(steps.map((s) => [s.id, s]));
+    const wiring = (s: PlanStep) => s.wiring ?? {};
+    const wf = { id: '', name: '', version: 1, description: '', steps: Object.fromEntries(steps.map((s) => [s.id, { tool: s.tool_id ?? '', inputs: wiring(s) }])) };
+    const rows = (s: PlanStep) => Math.max(Object.keys(wiring(s)).length, Object.keys(s.outputs ?? {}).length, 1);
+    const pos = layout(wf, (sid) => 66 + (sid === INPUT ? 1 : rows(byId.get(sid)!)) * 22);
+    const port = (names: string[]) => names.map((name) => ({ name, type: '', optional: true }));
+    nodes = [
+      {
+        id: INPUT,
+        type: 'step',
+        position: pos[INPUT],
+        selectable: false,
+        data: { title: 'Paired reads', category: 'Input', ins: [], outs: port(['reads']), broken: false, off: false, isInput: true, state: 'done' },
+      },
+      ...steps.map((s) => {
+        const state = stateOf(s);
+        return {
+          id: s.id,
+          type: 'step',
+          position: pos[s.id],
+          selected: s.id === selected,
+          data: {
+            title: s.label,
+            category: categories[s.tool_id ?? ''] ?? s.tool,
+            ins: port(Object.keys(wiring(s))),
+            outs: port(Object.keys(s.outputs ?? {})),
+            broken: false,
+            off: state === 'off',
+            isInput: false,
+            state: state === 'off' ? undefined : state,
+            dots: s.runnable ? tasksOf(s).map((t) => ({ cls: dot(t.status), title: `${t.tag}: ${t.status ? t.status.toLowerCase() : 'waiting'}` })) : [],
+          },
+        } satisfies Node;
+      }),
+    ];
+    const es: Edge[] = [];
+    for (const s of steps) {
+      const state = stateOf(s);
+      for (const [inp, srcs] of Object.entries(wiring(s))) {
+        // the source in use: the first one whose step runs
+        const src = srcs.find((x) => x === INPUT || byId.get(x.split('.')[0])?.runnable) ?? srcs[0];
+        if (!src) continue;
+        const [from, out] = src === INPUT ? [INPUT, 'reads'] : src.split('.');
+        es.push({ id: `${src}->${s.id}.${inp}`, source: from, sourceHandle: out, target: s.id, targetHandle: inp, animated: state === 'running', style: LINE[state] });
+      }
+    }
+    edges = es;
+  });
 
   const progress = $derived.by(() => {
     let total = 0;
@@ -293,38 +351,27 @@
         <div class="flex flex-wrap items-center gap-3.5 text-xs text-muted">
           <h2 class="m-0 mr-2 text-base font-semibold text-ink">Pipeline</h2>
           <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-[3px] bg-ok"></span>Done</span>
-          <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-[3px] bg-info"></span>Running</span>
+          <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-[3px] bg-[#ef4444] shadow-[0_0_6px_#ef4444]"></span>Working</span>
           <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-[3px] bg-line-strong"></span>Waiting</span>
           <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-[3px] bg-danger"></span>Failed</span>
-          <span class="ml-auto">One square per sample. Click a step to see its output.</span>
+          <span class="ml-auto">One square per sample. Click a step to see its output. Scroll to zoom, drag to move.</span>
         </div>
-        <div class="overflow-x-auto pb-1">
-          <div class="flex min-w-max items-center">
-            {#each columns as col, ci}
-              <div class="flex w-[180px] flex-col justify-center gap-2">
-                {#each col as s (s.id)}
-                  <button
-                    onclick={() => pick(s.id)}
-                    class="flex w-[180px] cursor-pointer items-center gap-2 rounded-[10px] bg-surface px-2.5 py-2 text-left text-ink transition-shadow hover:shadow-[0_0_0_3px_var(--brand-soft)]
-                      {selected === s.id ? 'border-2 border-brand' : s.runnable ? 'border border-line' : 'border border-dashed border-line-strong opacity-70'}"
-                  >
-                    <span class="flex min-w-0 flex-col">
-                      <span class="truncate text-[13px] font-semibold">{s.label}</span>
-                      <span class="truncate text-[11px] text-muted">{s.runnable ? `${s.tool} ${s.version}` : 'off'}</span>
-                    </span>
-                    {#if s.runnable}
-                      <span class="ml-auto flex max-w-[60px] flex-wrap justify-end gap-[3px]">
-                        {#each tasksOf(s) as t}<span class="h-2.5 w-2.5 rounded-[3px] {dot(t.status)}" title="{t.tag}: {t.status ?? 'waiting'}"></span>{/each}
-                      </span>
-                    {/if}
-                  </button>
-                {/each}
-              </div>
-              {#if ci < columns.length - 1}
-                <svg width="34" height="20" viewBox="0 0 34 20" aria-hidden="true" class="shrink-0 text-line-strong"><path d="M4 10h24M22 4l6 6-6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>
-              {/if}
-            {/each}
-          </div>
+        <div class="h-[560px] overflow-hidden rounded-xl border border-line bg-surface-2">
+          <SvelteFlow
+            bind:nodes
+            bind:edges
+            {nodeTypes}
+            fitView
+            minZoom={0.3}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            deleteKey={null}
+            onnodeclick={({ node }) => node.id !== INPUT && pick(node.id)}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background gap={20} />
+            <Controls showLock={false} />
+          </SvelteFlow>
         </div>
         {#if sel}
           <div class="flex flex-col gap-3 rounded-xl border border-brand/25 bg-brand-softer p-4 pl-5 shadow-[inset_4px_0_0_var(--brand)]">

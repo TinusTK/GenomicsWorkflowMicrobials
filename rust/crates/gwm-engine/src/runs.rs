@@ -95,8 +95,10 @@ fn save(dir: &Path, run: &Value) -> Result<()> {
     Ok(())
 }
 
+/// How far along a task status is; a later event never goes back to an earlier one.
 fn rank(s: &str) -> u8 {
     match s {
+        "" => 0,
         "SUBMITTED" => 1,
         "RUNNING" => 2,
         _ => 3,
@@ -527,6 +529,11 @@ pub fn detail(cat: &Catalog, run_id: &str) -> Result<Value> {
             .map(|a| {
                 a.iter()
                     .map(|s| {
+                        // input -> its sources, to draw the lines
+                        let wiring: serde_json::Map<String, Value> = s["inputs"]
+                            .as_object()
+                            .map(|m| m.iter().map(|(k, i)| (k.clone(), i["sources"].clone())).collect())
+                            .unwrap_or_default();
                         let sources: Vec<Value> = s["inputs"]
                             .as_object()
                             .map(|m| {
@@ -539,7 +546,7 @@ pub fn detail(cat: &Catalog, run_id: &str) -> Result<Value> {
                             "id": s["id"], "label": s["label"], "tool": s["tool_name"], "version": s["tool_version"],
                             "per_sample": s["per_sample"], "enabled": s["enabled"], "runnable": s["runnable"],
                             "inputs": sources,
-                            "tool_id": s["tool_id"], "publish": s["publish"], "outputs": s["outputs"],
+                            "tool_id": s["tool_id"], "publish": s["publish"], "outputs": s["outputs"], "wiring": wiring,
                         })
                     })
                     .collect()
