@@ -7,7 +7,8 @@
   import Toggle from '../lib/ui/Toggle.svelte';
   import { get, post, type Tool } from '../lib/api';
   import { openLink } from '../lib/desktop';
-  import { go, href } from '../lib/router.svelte';
+  import { go, href, route } from '../lib/router.svelte';
+  import { REPORT_TABLES } from '../lib/results';
   import { errorText, toasts } from '../lib/toast.svelte';
 
   /** the folders under the data folder's tools/ that imports and added tools go in */
@@ -53,7 +54,8 @@
 
   // ---------------------------------------------------------------- add a tool from GitHub
 
-  let addOpen = $state(false);
+  // Home's "Add a tool" button opens this page with the dialog already up
+  let addOpen = $state(route.current.query.get('add') === '1');
   let link = $state('');
   let adding = $state(false);
 
@@ -230,6 +232,23 @@
                       {/each}
                     </ul>
                   {:else}-{/if}
+                  {#if Object.values(t.outputs).some((o) => !['tsv', 'csv', 'tab'].includes(o.type))}
+                    <div class="mt-3 flex items-center gap-3 border-t border-line pt-3">
+                      <Toggle
+                        small
+                        label={`Show the reports of ${t.name} as tables`}
+                        checked={!t.hidden_outputs.includes(REPORT_TABLES)}
+                        onchange={(v) => showOutput(t, REPORT_TABLES, v)}
+                      />
+                      <span>
+                        <span class="font-semibold text-ink">Show its reports as tables</span> · text and JSON reports are read into tables
+                        with headings, every sample together.
+                        {t.source === 'built-in'
+                          ? 'Switch off to see the files as the tool wrote them.'
+                          : 'The tables are also saved as files beside the tool\'s own, as its "tables" output: connect that to Summary tables in the workflow builder. Switch off for only the files the tool wrote.'}
+                      </span>
+                    </div>
+                  {/if}
                 </div>
                 <div class="col-span-full flex flex-col gap-2 border-t border-line pt-3">
                   <span class="label-caps block">Versions</span>

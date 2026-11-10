@@ -10,7 +10,7 @@ workflows from the same tools or from tools you add.
 - **Every run in one folder** with its results and a record of exactly what ran.
 - **Add tools from GitHub** and **import workflows from Galaxy**.
 
-> **Version 2.0.0.** Version 1 (the browser app started with `./ntg`) has ended;
+> **Version 2.** Version 1 (the browser app started with `./ntg`) has ended;
 > its saved workflows, databases and results are kept.
 
 ## Install
@@ -21,7 +21,7 @@ and run it.
 
 | Computer | File | Notes |
 |---|---|---|
-| Windows 10/11 | `Genomics.Workflow.Microbials_2.0.0_x64-setup.exe` | Makes a Start menu entry and a desktop shortcut. |
+| Windows 10/11 | `..._x64-setup.exe` | Makes a Start menu entry and a desktop shortcut. |
 | Mac (Intel or Apple silicon) | `..._universal.dmg` | Drag the app to Applications. |
 | Linux | `..._amd64.AppImage` or `..._amd64.deb` | |
 
@@ -57,7 +57,8 @@ again when you open the app.
 
 ### Updating
 
-**Settings › Check for updates** says when a newer version is out and opens
+The app looks for a newer version each time it opens and tells you when one
+is out; **Settings › Check for updates** looks again and opens
 the download page. Run the new installer over the old one: your workflows,
 tools, databases and runs are kept.
 
@@ -87,7 +88,9 @@ so next to the setting:
 - **Kraken2 database:** Standard-8 (2026-06) instead of Galaxy's full Standard
   (2020) with 2021 Bracken files, so species abundances can differ a little.
   It needs about 8 GB of memory; switch the Kraken2 step off on a computer
-  that has less.
+  that has less. The Databases page also offers Standard-16 (16 GB of memory)
+  and the full Standard database (about 100 GB of memory, for servers):
+  install one, then pick it in the Kraken2 and Bracken steps (Database).
 - **CheckM tree:** "Auto" uses the reduced tree on computers with less than
   40 GB of memory (Galaxy used the full tree).
 
@@ -139,17 +142,31 @@ folder and opens it.
 
 The app is meant to work with any tool that has a GitHub page.
 
-1. **Tools › Add a tool**, and paste the tool's GitHub link.
-2. The app reads the tool's name, description, licence and newest release,
-   and looks for its container on [BioContainers](https://biocontainers.pro).
-3. The editor opens. It shows the names to use in the command, a list of what
-   is still to do, **Show the tool's help** (the tool's own help text) and
-   **Try on one sample**, which runs the command once and shows what it made.
-4. Switch on **Ready to use** and save. The tool is now in the workflow builder.
+**Tools › Add a tool**, and paste the tool's GitHub link. Then one of two
+things happens:
 
-Everything is kept on your computer; nothing is changed on GitHub. A
-repository that carries its own definition for this app (`gwm/tool.yml`)
-installs with no editing: see [docs/TOOLS.md](docs/TOOLS.md).
+- **The tool has a tested setup** (the list is in [`recipes/`](recipes/),
+  TBProfiler so far): it is ready to use at once.
+- **It has none yet:** the app reads the tool's name, licence and newest
+  release, finds its container on [BioContainers](https://biocontainers.pro)
+  and opens the editor. Choose a folder of reads and press **Set it up for
+  me**: the app reads the tool's own help, writes the command, tries it on
+  one sample and lists the result files. When that works, the tool is ready.
+
+The automatic setup fits tools with the usual options (reads in, a folder or
+file out), not every tool. When it doesn't fit, the command is yours to change
+in the editor, which shows the names to use, the tool's help and a try-out on
+one sample. Or [ask for a tested setup](#help-and-reporting-problems): once it
+is added here, every copy of the app picks it up.
+
+Everything is kept on your computer; nothing is changed on GitHub. See
+[docs/TOOLS.md](docs/TOOLS.md) for the details.
+
+If a tool has no ready-made container, the app builds one on your computer
+from the tool's repository (several minutes, once; needs Docker). And
+whatever a tool writes, its results show as tables: a text or JSON report is
+read into tables with headings, every sample together (this can be switched
+off per tool on the Tools page).
 
 ## Help and reporting problems
 
@@ -160,6 +177,12 @@ If a tool will not install or run, or anything else goes wrong:
 - email **t.k.business@outlook.com**.
 
 Both are also under **Settings › Report an issue** in the app.
+
+**When a run fails**, its page has **Save a problem report**: one text file,
+saved where you choose, with what is needed to find out why (the app and
+computer, the workflow, what each step printed and where it stopped). It
+holds no sequence data, and sample names and the computer's user name are
+replaced before it is written. Attach it to your issue or email.
 
 ## For developers
 

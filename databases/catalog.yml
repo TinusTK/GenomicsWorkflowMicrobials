@@ -1,10 +1,12 @@
-# Reference databases the tools use. Installed under $NTG_DB_DIR
-# (default ~/.ntg/databases) by `ntg db install <id>` or the UI.
+# Reference databases the tools use. Installed under $GWM_DB_DIR (default
+# ~/.gwm/databases) from the Databases page. `memory_gb`: what a tool needs
+# to load it (a step that picks it gets that much, and a little more).
 databases:
   kraken2_standard_8:
     name: Kraken2 Standard-8 (with Bracken files)
     version: "2026-06-26"
     size_gb: 7.5
+    memory_gb: 8
     install_dir: kraken2/k2_standard_08_GB_20260626
     check_file: hash.k2d
     url: https://genome-idx.s3.amazonaws.com/kraken/k2_standard_08_GB_20260626.tar.gz
@@ -15,9 +17,42 @@ databases:
       capped at 8 GB so it fits in ordinary PCs' memory. Includes the Bracken
       k-mer files (100-300 bp reads).
     galaxy_note: >-
-      Galaxy RDH v5.2 used the full Standard database of 2020-02-04 with
+      Galaxy RDH v6 uses the full Standard database of 2020-02-04 with
       Bracken files from 2021-05-17. Standard-8 is smaller and newer, so
       species abundances can differ a little from Galaxy.
+  kraken2_standard_16:
+    name: Kraken2 Standard-16 (with Bracken files)
+    version: "2026-06-26"
+    size_gb: 12
+    memory_gb: 16
+    install_dir: kraken2/k2_standard_16_GB_20260626
+    check_file: hash.k2d
+    url: https://genome-idx.s3.amazonaws.com/kraken/k2_standard_16_GB_20260626.tar.gz
+    format: tar.gz
+    source: https://benlangmead.github.io/aws-indexes/k2
+    description: >-
+      The same reference genomes as Standard-8, capped at 16 GB instead of 8,
+      so more of them are kept and species calls are a little more exact.
+      A 12 GB download. Needs about 16 GB of memory while Kraken2 runs: for
+      computers with 32 GB or more. Pick it in the Kraken2 and Bracken steps
+      (Database) once it is installed.
+  kraken2_standard:
+    name: Kraken2 Standard, full size (with Bracken files)
+    version: "2026-06-26"
+    size_gb: 86
+    memory_gb: 100
+    install_dir: kraken2/k2_standard_20260626
+    check_file: hash.k2d
+    url: https://genome-idx.s3.amazonaws.com/kraken/k2_standard_20260626.tar.gz
+    format: tar.gz
+    source: https://benlangmead.github.io/aws-indexes/k2
+    description: >-
+      The full Standard database, not capped. An 86 GB download. Needs about
+      100 GB of memory while Kraken2 runs: for servers, not ordinary PCs.
+      Pick it in the Kraken2 and Bracken steps (Database) once it is installed.
+    galaxy_note: >-
+      This is the kind of database Galaxy RDH v6 uses (its copy is from
+      2020-02-04, with Bracken files from 2021-05-17; this one is newer).
   checkm_data:
     name: CheckM reference data
     version: "2015-01-16"

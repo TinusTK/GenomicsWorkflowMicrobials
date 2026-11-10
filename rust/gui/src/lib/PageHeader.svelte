@@ -17,7 +17,8 @@
   const u = $derived(live.usage);
 </script>
 
-<header class="flex flex-col gap-3 border-b border-line bg-surface px-8 pt-[18px] pb-[18px] max-[720px]:px-4">
+<!-- stays at the top while the page scrolls -->
+<header class="sticky top-0 z-30 flex flex-col gap-3 border-b border-line bg-surface px-8 pt-[18px] pb-[18px] max-[720px]:px-4">
   <div class="flex flex-wrap items-center gap-3">
     {#each crumbs as c}
       <a href={c.href} class="text-sm font-medium text-brand no-underline hover:underline">{c.label}</a>
@@ -25,10 +26,9 @@
     {/each}
     <h1 class="m-0 font-display text-[22px] font-semibold">{title}</h1>
     {@render extra?.()}
-    <div class="ml-auto flex flex-wrap items-center gap-2">
-      {#if actions}
-        {@render actions()}
-      {:else if u}
+    <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
+      <!-- the computer's use, on every page -->
+      {#if u}
         <span class="rounded-lg px-2.5 py-1.5 text-[13px] font-medium {tone(u.cpu_percent / 100)}">
           CPU {Math.round(u.cpu_percent)}%{u.cpu_ghz ? ` · ${u.cpu_ghz} GHz` : ''} · {u.cpus} threads
         </span>
@@ -41,6 +41,7 @@
           </span>
         {/if}
       {/if}
+      {@render actions?.()}
     </div>
   </div>
 </header>

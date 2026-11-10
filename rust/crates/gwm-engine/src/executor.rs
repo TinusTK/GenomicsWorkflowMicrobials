@@ -455,6 +455,10 @@ impl<'a> Executor<'a> {
             key.update(dir.to_string_lossy().as_bytes());
             mounts.push((dir, true));
         }
+        // a database the step picked: the tool's command still asks for its own ($DB_<own>)
+        for (own, picked) in &step.db_alias {
+            env.push(format!("export DB_{own}=\"$DB_{picked}\""));
+        }
         for (_, f) in &staged {
             if let Some(parent) = f.parent() {
                 if !parent.starts_with(&spec.work_dir) && !mounts.iter().any(|(m, _)| m == parent) {
@@ -584,6 +588,36 @@ impl<'a> Executor<'a> {
             out.insert(name.clone(), found);
         }
         Ok(out)
+    }
+
+    /// A step whose tool writes reports: the reports are also written as tables
+    /// (`out/tables/`, the tool's `tables` output), then the outputs are listed
+    /// again with those in.
+    fn with_report_tables(
+        &self,
+        t: usize,
+        dir: &Path,
+        staged: &BTreeSet<String>,
+        outs: IndexMap<String, Vec<PathBuf>>,
+    ) -> Result<IndexMap<String, Vec<PathBuf>>> {
+        let step = &self.spec.plan.steps[self.tasks[t].step];
+        if step.report_outputs.is_empty() {
+            return Ok(outs);
+        }
+        // a report the app can't read as tables never stops a run: the step keeps its own outputs
+        let tag = self.tasks[t].tag(self.spec);
+        let written = std::panic::catch_unwind(|| crate::reports::write_tables(dir, &outs, &step.report_outputs, &tag));
+        match written {
+            Ok(Ok(_)) => self.collect(t, dir, staged),
+            Ok(Err(e)) => {
+                eprintln!("{}: its report was not turned into tables ({e:#})", step.id);
+                Ok(outs)
+            }
+            Err(_) => {
+                eprintln!("{}: its report was not turned into tables", step.id);
+                Ok(outs)
+            }
+        }
     }
 
     fn publish(&self, t: usize, dir: &Path, outputs: &IndexMap<String, Vec<PathBuf>>) -> Result<()> {
@@ -748,6 +782,7 @@ impl<'a> Executor<'a> {
                 }
                 let collected = if code == 0 {
                     self.collect(t, &dir, &prepared.staged)
+                        .and_then(|outs| self.with_report_tables(t, &dir, &prepared.staged, outs))
                 } else {
                     Err(anyhow!("exit status {code}"))
                 };

@@ -260,6 +260,27 @@ fn open_url(url: String) -> Result<(), String> {
     cmd.arg(&url).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// Ask where to save a text file (a run's problem report) and write it there.
+/// Returns where it went, or nothing when the dialog was closed.
+#[tauri::command]
+async fn save_text_file(app: tauri::AppHandle, name: String, text: String) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_file_name(&name)
+            .add_filter("Text file", &["txt"])
+            .blocking_save_file()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let Some(path) = picked.and_then(|p| p.into_path().ok()) else {
+        return Ok(None);
+    };
+    std::fs::write(&path, text).map_err(|e| format!("Could not save to {}: {e}", path.display()))?;
+    Ok(Some(path.display().to_string()))
+}
+
 /// Bring the window back (from the system tray, or when the app is started again).
 fn show_window(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -303,8 +324,9 @@ fn main() {
     let app = tauri::Builder::default()
         // started a second time: show the window that is already there
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_window(app)))
+        .plugin(tauri_plugin_dialog::init())
         .manage(Backend::default())
-        .invoke_handler(tauri::generate_handler![backend_status, restart_backend, open_folder, open_url, setup_wsl, setup_docker])
+        .invoke_handler(tauri::generate_handler![backend_status, restart_backend, open_folder, open_url, save_text_file, setup_wsl, setup_docker])
         .setup(|app| {
             let handle = app.handle().clone();
             #[cfg(not(target_os = "linux"))]

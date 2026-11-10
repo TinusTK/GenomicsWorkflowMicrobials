@@ -109,6 +109,8 @@ export interface SettingSpec {
   type?: string;
   default?: unknown;
   options?: string[];
+  /** what to show for an option, when its value is not something to read (a database id) */
+  option_labels?: Record<string, string>;
   auto?: { value: unknown; label: string };
   description?: string;
 }
@@ -144,6 +146,12 @@ export interface Tool {
   program?: string;
   /** added from this GitHub repository */
   github?: { repo: string; branch?: string };
+  /** what a container can be built from, when there is no ready-made one */
+  build?: { kind: string; file: string };
+  /** it writes reports, which the app also saves as tables (its `tables` output) */
+  report_tables?: boolean;
+  /** the setting that picks which database a step uses */
+  database_setting?: string;
 }
 
 /** One step of a Galaxy workflow and what the import makes of it. */

@@ -101,6 +101,14 @@ BioContainers images of the tool on quay.io) and live in
 **Tools › Add a tool** takes the link to a tool's GitHub page. Nothing on
 GitHub is changed; the tool is kept in `~/.gwm/tools/github/<id>/`.
 
+**A tool with a tested setup** is ready at once. Tested setups are `tool.yml`
+files in this repository's [`recipes/`](../recipes/) folder, named
+`<owner>__<repository>.yml` in lowercase (`jodyphelan__tbprofiler.yml`). The
+app looks in this repository first, so a setup added here reaches every copy
+of the app without an update, and falls back to the ones it was installed
+with. To add one: write it, check it with **Try on one sample**, and open a
+pull request or an issue.
+
 **A repository with its own definition** installs as it is. Put a `tool.yml`
 (the format above) in a folder called `gwm/` at the top of the repository;
 the files it lists under `files:` are taken from that same folder:
@@ -116,14 +124,37 @@ gwm/script.py        # listed as files: [script.py]
 - the version, from the newest release;
 - the container, from BioContainers: it looks for the package named in the
   README (a bioconda badge or a `conda install` line) and then for the
-  repository's own name. With none found, the container address is typed in
-  the editor (any public image with the tool installed, at one exact tag).
+  repository's own name. With none found, the app builds one on the computer
+  (below), or its address is typed in the editor (any public image with the
+  tool installed, at one exact tag).
 
-The draft opens in the editor, where the command, inputs and outputs are
-filled in. The editor lists the names the command can use, checks the form as
-you type, shows the tool's own help text (**Show the tool's help**) and runs
-the command once on one sample (**Try on one sample**), listing the files it
-made and how each will show on a run's page. A draft can't be run in a
+**A tool with no ready-made container** gets one built on the computer by
+**Set it up for me**, from what its repository offers, tried in this order:
+its own `Dockerfile`, a conda environment file (`environment.yml`), a Python
+package (`pyproject.toml` or `setup.py`). The build takes several minutes,
+once, and needs Docker (not Apptainer). The image is named
+`gwm-local/<tool>:<version>-<commit>` and stays on that computer: another
+computer builds its own from the same commit, which is recorded in the tool
+(`built:`).
+
+The draft opens in the editor. **Set it up for me** does the rest when it can:
+
+1. it runs the program's `--help` in its container (and, for a program with
+   sub-commands, the help of its main one: `profile`, `run`, `typing` ...);
+2. it writes the command from the options it recognises: the two read files
+   (or an assembly), the threads, and where results go (a folder, a sample
+   prefix, one file, or what the program prints);
+3. with a folder of reads, it tries the command on the first sample;
+4. it lists the small text, table and page files the try-out made under
+   `out/` as the tool's outputs, and switches on **Ready to use**.
+
+This is a best guess: a tool with unusual options, or one that needs a
+database or a reference, will need its command changed by hand. The editor
+shows the command first; the rest is under **More options**. It lists the
+names the command can use, checks the form as you type, shows the tool's own
+help text (**Show the tool's help**) and runs the command once on one sample
+(**Try on one sample**), listing the files it made and how each will show on
+a run's page. A draft can't be run in a
 workflow until **Ready to use** is switched on (`draft: true` is then taken
 out of its `tool.yml`).
 
@@ -200,3 +231,20 @@ command finds one folder per source in `$IN_tables_DIR`, named
 `<step>.<output>`, and every sample id of the run in `$SAMPLES` (one per
 line). The RDH workflow keeps its own `summary` tool, which makes the tables
 exactly as Galaxy does.
+
+## Reports shown as tables
+
+A tool that writes a table (`.tsv`, `.csv`) shows as one. Many tools write a
+report instead: a text file in titled sections, or a JSON file. On a run's
+page these are read into tables, every sample together:
+
+- a section of `name: value` lines becomes one row per sample, with the names
+  as headings;
+- a section of rows becomes a table, with the sample in the first column;
+- a JSON file gives its plain values as one row per sample and each list of
+  records as a table. It is used only when the tool has no table or text
+  report.
+
+A text section is a title with a line of `----` or `====` under it; rows are
+split on tabs (commas in a `.csv`). **Tools › (a tool) › Show its reports as
+tables** switches this off for a tool, and its files then show as written.

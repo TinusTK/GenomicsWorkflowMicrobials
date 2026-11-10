@@ -12,9 +12,9 @@
   import Icon from '../lib/ui/Icon.svelte';
   import Pill from '../lib/ui/Pill.svelte';
   import { del, fileText, fileUrl, get, post, type PlanStep, type RunDetail, type Tool } from '../lib/api';
-  import { openFolder } from '../lib/desktop';
+  import { invoke, isDesktop, openFolder } from '../lib/desktop';
   import { duration, live, size, when } from '../lib/live.svelte';
-  import { asTable, combine, fileKind, stepFiles, stepViews, titleOf, type Table } from '../lib/results';
+  import { asTable, combine, combineReports, fileKind, REPORT_TABLES, stepFiles, stepViews, titleOf, type Section, type Table } from '../lib/results';
   import { go, href } from '../lib/router.svelte';
   import { errorText, toasts } from '../lib/toast.svelte';
 
@@ -257,11 +257,84 @@
     // a step with no tables opens on its report page (else its first text file)
     const { tables, others } = selViews;
     if (others.includes(untrack(() => selFile))) return;
-    const first = tables.length ? undefined : (others.find((p) => fileKind(p) === 'page') ?? others.find((p) => fileKind(p) === 'text'));
+    // text and JSON reports are read into tables below; a page or a log opens as it is
+    const first = tables.length
+      ? undefined
+      : (others.find((p) => fileKind(p) === 'page') ?? others.find((p) => fileKind(p) === 'text' && !/\.(txt|json)$/i.test(p)));
     untrack(() => (first ? showFile(first) : ((selFile = ''), (selText = null))));
   });
 
+  // A step's report files (text in sections, or JSON) read into tables, every
+  // sample together, so each tool's results look alike whatever it writes.
+  let selReports = $state<{ key: string; sections: Section[] }[]>([]);
+  let reportsFor = '';
+  $effect(() => {
+    const rid = run?.id;
+    const step = sel;
+    const { tables, others } = selViews;
+    // switched off for this tool on the Tools page: its reports show as they are
+    const asTables = !(hidden[step?.tool_id ?? ''] ?? []).includes(REPORT_TABLES);
+    const key = JSON.stringify([step?.id, others, asTables]);
+    if (!rid || !step || key === reportsFor) return;
+    reportsFor = key;
+    selReports = [];
+    const sizes = new Map((run?.files ?? []).map((f) => [f.path, f.size]));
+    const samples = run?.samples ?? [];
+    const groups = new Map<string, { sample: string; path: string }[]>();
+    for (const p of others) {
+      // a step that already has tables (its own, or its reports saved as tables by the app) needs none made here
+      if (!asTables || tables.length || !/\.(txt|json)$/i.test(p) || (sizes.get(p) ?? 0) > 3_000_000) continue;
+      const name = p.split('/').pop()!;
+      const sample = step.per_sample ? (samples.find((s) => p.includes(`/${s}/`)) ?? samples.find((s) => name.includes(s)) ?? '') : '';
+      const k = sample ? name.replace(sample, '').replace(/^[._-]+/, '') : name;
+      groups.set(k, [...(groups.get(k) ?? []), { sample: sample || 'all', path: p }]);
+    }
+    (async () => {
+      const found: { key: string; sections: Section[] }[] = [];
+      // text reports first; a JSON file only when nothing else gives a table
+      for (const kind of ['.txt', '.json']) {
+        for (const [k, files] of groups) {
+          if (!k.toLowerCase().endsWith(kind)) continue;
+          const parts = await Promise.all(files.map(async (f) => ({ ...f, text: (await fileText(rid, f.path)) ?? '' })));
+          const sections = combineReports(parts);
+          if (sections.length) found.push({ key: k, sections });
+        }
+        if (found.length || tables.length) break;
+      }
+      if (reportsFor !== key) return;
+      selReports = found;
+      // a text file that is not a report in sections shows as it is
+      const plain = others.find((p) => fileKind(p) === 'text');
+      if (!found.length && !tables.length && !selFile && plain) showFile(plain);
+    })();
+  });
+
   // ---------------------------------------------------------------- actions
+
+  /** A file with what is needed to find out why the run stopped, saved where the user chooses. */
+  let reporting = $state(false);
+  async function saveReport() {
+    reporting = true;
+    try {
+      const { text } = await get<{ text: string }>(`/api/runs/${encodeURIComponent(id)}/report`);
+      const name = `Genomics Workflow Microbials problem report ${new Date().toISOString().slice(0, 10)}.txt`;
+      if (isDesktop()) {
+        const where = await invoke<string | null>('save_text_file', { name, text });
+        if (where) toasts.show(`Saved to ${where}. Send it to us from Settings, Report an issue.`, 'ok', undefined, 15000);
+      } else {
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+        link.download = name;
+        link.click();
+        URL.revokeObjectURL(link.href);
+        toasts.show('The problem report was downloaded. Send it to us from Settings, Report an issue.', 'ok', undefined, 15000);
+      }
+    } catch (e) {
+      toasts.show(errorText(e), 'error');
+    } finally {
+      reporting = false;
+    }
+  }
 
   async function stop() {
     busy = true;
@@ -316,7 +389,10 @@
       {#if active}
         <Button variant="danger" icon="stop" onclick={() => (confirmStop = true)}>Stop run</Button>
       {:else}
-        {#if run!.status !== 'succeeded'}<Button variant="primary" icon="refresh" {busy} onclick={resume}>Resume</Button>{/if}
+        {#if run!.status !== 'succeeded'}
+          <Button icon="file" busy={reporting} onclick={saveReport}>Save a problem report</Button>
+          <Button variant="primary" icon="refresh" {busy} onclick={resume}>Resume</Button>
+        {/if}
         <Button variant="danger" icon="trash" onclick={() => (confirmDelete = true)}>Delete</Button>
       {/if}
     {/snippet}
@@ -426,6 +502,22 @@
                   <p class="m-0 text-[13px] text-muted">Loading…</p>
                 {/if}
               </div>
+            {/each}
+            {#each selReports as rep (rep.key)}
+              {#each rep.sections as s, i (s.title + s.pairs)}
+                <details class="rounded-xl border border-line bg-surface" open={i < 3}>
+                  <summary class="flex cursor-pointer flex-wrap items-center gap-2 px-3.5 py-2.5 text-[13px]">
+                    <span class="font-semibold text-ink">{s.title}</span>
+                    <span class="text-muted">· {s.table.rows.length} row{s.table.rows.length === 1 ? '' : 's'} · from {rep.key}</span>
+                  </summary>
+                  <div class="max-h-[420px] overflow-auto border-t border-line">
+                    <table class="data">
+                      <thead class="sticky top-0"><tr>{#each s.table.header as h}<th>{h}</th>{/each}</tr></thead>
+                      <tbody>{#each s.table.rows.slice(0, 500) as r}<tr>{#each r as c}<td class="whitespace-nowrap">{c}</td>{/each}</tr>{/each}</tbody>
+                    </table>
+                  </div>
+                </details>
+              {/each}
             {/each}
             {#if selViews.others.length}
               <div class="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Other files of this step">

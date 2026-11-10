@@ -236,13 +236,37 @@ fn readme(name: &str, workflow: &str, n: usize) -> String {
     )
 }
 
+/// A run whose process hit a problem it could not carry on from: say so in
+/// the run (instead of leaving it looking as if it were still running).
+pub fn mark_crashed(cat: &Catalog, run_id: &str, why: &str) {
+    let Ok(mut run) = load(cat, run_id) else { return };
+    if run["status"] != "running" && run["status"] != "queued" {
+        return;
+    }
+    run["status"] = "failed".into();
+    run["error"] = format!(
+        "The app's engine hit a problem it did not expect, and the run stopped: {why}\nResume the run to try again. If it happens again, please report it (Settings, Report an issue)."
+    )
+    .into();
+    run["finished"] = Local::now().format("%Y-%m-%dT%H:%M:%S").to_string().into();
+    if let Ok(dir) = run_path(cat, run_id) {
+        let _ = save(&dir, &run);
+    }
+}
+
 /// Is the process that runs this run still there?
 pub fn pid_alive(pid: Option<u64>) -> bool {
     let Some(pid) = pid else { return false };
     #[cfg(unix)]
     {
         // SAFETY: signal 0 only checks the process exists
-        unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+        let there = unsafe { libc::kill(pid as libc::pid_t, 0) == 0 };
+        // a process that ended but was not collected yet (a "zombie") still answers: it is gone all the same
+        let ended = std::fs::read_to_string(format!("/proc/{pid}/stat"))
+            .ok()
+            .and_then(|s| s.rsplit_once(") ").map(|(_, rest)| rest.starts_with('Z')))
+            .unwrap_or(false);
+        there && !ended
     }
     #[cfg(not(unix))]
     {

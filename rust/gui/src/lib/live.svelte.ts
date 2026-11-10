@@ -1,6 +1,16 @@
 // Things several screens show, kept fresh in the background.
 
 import { get, type Database, type Hardware, type RunSummary, type Usage } from './api';
+import { openLink } from './desktop';
+import { toasts } from './toast.svelte';
+
+/** Whether a newer version of the app is out (GitHub releases). */
+export interface AppUpdate {
+  current: string;
+  latest: string | null;
+  newer: boolean;
+  url: string;
+}
 
 class Live {
   usage = $state<Usage | null>(null);
@@ -8,6 +18,9 @@ class Live {
   runs = $state<RunSummary[]>([]);
   databases = $state<Database[]>([]);
   online = $state(true);
+  /** the newest release, once looked up (at every start, and from Settings) */
+  update = $state<AppUpdate | null>(null);
+  #lookedForUpdate = false;
 
   running = $derived(this.runs.filter((r) => r.status === 'running' || r.status === 'queued').length);
   missingDb = $derived(this.databases.filter((d) => !d.installed));
@@ -16,9 +29,23 @@ class Live {
     try {
       this.usage = await get<Usage>('/api/usage');
       this.online = true;
+      // every start: say so when a newer version is out (quietly skipped with no internet)
+      if (!this.#lookedForUpdate) {
+        this.#lookedForUpdate = true;
+        this.checkUpdate()
+          .then((u) => {
+            if (u.newer) toasts.show(`Version ${u.latest} is out (you have ${u.current}).`, 'info', { label: 'Download', run: () => openLink(u.url) }, 20000);
+          })
+          .catch(() => {});
+      }
     } catch {
       this.online = false;
     }
+  }
+  /** Ask GitHub for the newest release. */
+  async checkUpdate() {
+    this.update = await get<AppUpdate>('/api/update');
+    return this.update;
   }
   async refreshRuns() {
     try {
@@ -49,6 +76,10 @@ class Live {
     this.refreshDatabases();
     setInterval(() => this.refreshUsage(), 4000);
     setInterval(() => this.refreshRuns(), 5000);
+    // until the containers are ready, keep looking (Docker can take a minute to start)
+    setInterval(() => {
+      if (!this.hardware?.docker && !this.hardware?.apptainer) this.refreshHardware();
+    }, 15000);
   }
 }
 

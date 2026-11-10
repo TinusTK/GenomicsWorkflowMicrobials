@@ -14,8 +14,10 @@ resources: {cpus: 8, memory_gb: 10}
 requirements:
   memory_gb: 9
   disk_gb_per_sample: 0.1
-  note: The whole database is loaded into memory (Standard-8 needs about 8 GB).
+  note: The whole database is loaded into memory (Standard-8 needs about 8 GB, Standard-16 about 16 GB).
 databases: [kraken2_standard_8]
+# the Database setting picks another installed one in its place; the command keeps using $DB_kraken2_standard_8
+database_setting: database
 
 inputs:
   reads: {type: reads, description: Paired reads.}
@@ -24,6 +26,16 @@ outputs:
   report: {type: txt, path: "out/{sample}.kraken2.report.txt", description: Kraken2 report (reads per taxon).}
 
 settings:
+  database:
+    label: Database
+    type: select
+    options: [kraken2_standard_8, kraken2_standard_16, kraken2_standard]
+    option_labels:
+      kraken2_standard_8: Standard-8 (8 GB memory)
+      kraken2_standard_16: Standard-16 (16 GB memory)
+      kraken2_standard: Standard, full size (100 GB memory)
+    default: kraken2_standard_8
+    description: Which Kraken2 database to use, of the ones installed on the Databases page. Bigger ones are a little more exact and need more memory. Use the same one in the Bracken step.
   confidence:
     label: Confidence threshold
     type: number

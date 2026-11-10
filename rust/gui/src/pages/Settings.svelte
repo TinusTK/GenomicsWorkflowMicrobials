@@ -2,7 +2,6 @@
   import PageHeader from '../lib/PageHeader.svelte';
   import Button from '../lib/ui/Button.svelte';
   import Icon from '../lib/ui/Icon.svelte';
-  import { get } from '../lib/api';
   import { backendStatus, invoke, isDesktop, openFolder, openLink } from '../lib/desktop';
   import { errorText, toasts } from '../lib/toast.svelte';
   import { live } from '../lib/live.svelte';
@@ -38,18 +37,13 @@
   backendStatus().then((s) => s && (inTray = !!s.tray));
 
   // ---------------------------------------------------------------- updates
-  interface Update {
-    current: string;
-    latest: string | null;
-    newer: boolean;
-    url: string;
-  }
-  let update = $state<Update | null>(null);
+  // looked up at every start; the button looks again
+  const update = $derived(live.update);
   let checking = $state(false);
   async function checkUpdate() {
     checking = true;
     try {
-      update = await get<Update>('/api/update');
+      await live.checkUpdate();
     } catch (e) {
       toasts.show(errorText(e), 'error');
     } finally {
@@ -160,7 +154,7 @@ Containers: ${engine ?? 'none found'}
       <div class="flex flex-wrap items-center gap-3 text-sm">
         <span class="min-w-0 flex-[1_1_320px]">
           {#if !update}
-            You have version {hw.app_version}.
+            You have version {hw.app_version}. The app looks for a newer version each time it opens.
           {:else if update.newer}
             <strong>Version {update.latest} is out</strong> (you have {update.current}). Download the installer and run it: your
             workflows, tools, databases and runs are kept.

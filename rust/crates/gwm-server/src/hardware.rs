@@ -171,9 +171,15 @@ pub fn warnings(cat: &Catalog, wf: &Workflow, hw: &Value, n_samples: Option<usiz
                 add("info", format!("{label}: with {mem:.0} GB RAM, Auto uses the reduced tree (Galaxy used the full tree; results can differ slightly)."), Some(sid));
             }
         }
-        for d in &tool.databases {
+        for d in &compiler::step_databases(tool, step).0 {
             match dbs.get(d) {
-                Some(db) if db.installed => {}
+                Some(db) if db.installed => {
+                    // it is loaded into memory whole
+                    let needs = db.extra.get("memory_gb").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    if needs > mem {
+                        add("error", format!("{label}: the {} database needs about {needs:.0} GB RAM; this computer has {mem:.0} GB. Pick a smaller database in the step's settings.", db.name), Some(sid));
+                    }
+                }
                 Some(db) => add("error", format!("{label} needs the {} database, which is not installed ({} GB download). Install it on the Databases page.", db.name, db.size_gb), Some(sid)),
                 None => add("error", format!("{label} needs the database '{d}', which this app doesn't know."), Some(sid)),
             }

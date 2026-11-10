@@ -3,8 +3,10 @@
 //! failed runs, publishes results and writes provenance.
 
 pub mod backend;
+pub mod diagnose;
 pub mod executor;
 pub mod provenance;
+pub mod reports;
 pub mod resources;
 pub mod runs;
 pub mod trial;

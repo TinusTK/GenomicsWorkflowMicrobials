@@ -28,15 +28,17 @@
 <div class="flex w-full max-w-[1160px] flex-col gap-6 px-8 pt-7 pb-10 max-[720px]:px-4">
   <section class="flex flex-wrap items-center gap-6 rounded-2xl bg-brand px-8 py-7 text-on-brand">
     <div class="flex flex-[1_1_420px] flex-col gap-2">
-      <h2 class="m-0 font-display text-[28px] font-semibold">Type your isolates</h2>
+      <h2 class="m-0 font-display text-[28px] font-semibold">Analyse your isolates, your way</h2>
       <p class="m-0 text-[15px] leading-relaxed opacity-90">
-        Pick a folder of paired reads and a workflow. The app does the assembly, MLST, serovar, emm type, AMR and quality
-        checks, and every result records the exact tool versions.
+        Pick a folder of paired reads and a workflow, or import one from Galaxy Australia (.ga file). Use the built-in typing
+        workflow, or add any tool from GitHub and build your own, with no command line. Every result records the exact tool
+        versions.
       </p>
     </div>
     <div class="flex flex-wrap gap-2.5">
       <Button variant="on-brand" size="lg" icon="plus" href={href('new')}>New run</Button>
       <a href={href('workflows/new')} class="inline-flex h-12 items-center rounded-xl border border-white/50 px-5 text-[15px] font-semibold text-on-brand no-underline hover:bg-white/10">Build a workflow</a>
+      <a href={href('tools?add=1')} class="inline-flex h-12 items-center rounded-xl border border-white/50 px-5 text-[15px] font-semibold text-on-brand no-underline hover:bg-white/10">Add a tool</a>
     </div>
   </section>
 

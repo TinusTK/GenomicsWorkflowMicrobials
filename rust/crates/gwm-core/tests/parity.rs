@@ -51,7 +51,10 @@ fn rdh_v5_2_matches_python() {
     let plan = compiler::plan(&wf, &tools, &cat.load_databases().unwrap()).unwrap();
     for s in &plan.steps {
         let want = &fixture["settings"][&s.id];
-        let got = serde_json::to_value(&s.settings).unwrap();
+        // v1 had one Kraken2 database: the Database setting came after it
+        let mut settings = s.settings.clone();
+        settings.shift_remove("database");
+        let got = serde_json::to_value(&settings).unwrap();
         assert_eq!(&got, want, "settings of step {}", s.id);
         assert_eq!(Value::Bool(s.runnable), fixture["runnable"][&s.id], "runnable {}", s.id);
     }

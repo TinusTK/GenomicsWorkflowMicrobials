@@ -12,6 +12,7 @@
   import Pill from '../lib/ui/Pill.svelte';
   import Toggle from '../lib/ui/Toggle.svelte';
   import { get, post, type Tool, type Workflow, type WorkflowView } from '../lib/api';
+  import { live } from '../lib/live.svelte';
   import { addStep, candidates, downstream, INPUT, label as srcLabel, layout, problems, removeStep, slug, sourceType } from '../lib/builder';
   import { go, href } from '../lib/router.svelte';
   import { errorText, toasts } from '../lib/toast.svelte';
@@ -402,7 +403,10 @@
                 <Toggle label={spec.label ?? name} checked={v === true || v === 'true'} disabled={!editing} onchange={(on) => setSetting(name, on)} />
               {:else if spec.type === 'select'}
                 <select class="input" disabled={!editing} value={String(v)} onchange={(e) => setSetting(name, e.currentTarget.value)}>
-                  {#each spec.options ?? [] as o}<option value={o}>{o}</option>{/each}
+                  {#each spec.options ?? [] as o}
+                    {@const db = selTool.database_setting === name ? live.databases.find((d) => d.id === o) : undefined}
+                    <option value={o}>{spec.option_labels?.[o] ?? o}{db && !db.installed ? ' · not installed yet' : ''}</option>
+                  {/each}
                 </select>
               {:else}
                 <input

@@ -126,7 +126,26 @@ fn main() -> Result<()> {
         Cmd::Exec { run_id } => {
             let stop = stop_on_ctrl_c()?;
             let backend = backend::detect();
-            finish(&runs::resume(&cat, &run_id, backend.as_ref(), &stop, &progress)?);
+            // whatever goes wrong, the run says so: it never stays "running" with nothing running
+            let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                runs::resume(&cat, &run_id, backend.as_ref(), &stop, &progress)
+            }));
+            match done {
+                Ok(Ok(outcome)) => finish(&outcome),
+                Ok(Err(e)) => {
+                    runs::mark_crashed(&cat, &run_id, &format!("{e:#}"));
+                    return Err(e);
+                }
+                Err(panic) => {
+                    let why = panic
+                        .downcast_ref::<String>()
+                        .cloned()
+                        .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
+                        .unwrap_or_else(|| "an internal error".into());
+                    runs::mark_crashed(&cat, &run_id, &why);
+                    std::process::exit(101);
+                }
+            }
         }
         Cmd::Run {
             workflow,

@@ -51,6 +51,8 @@
         return;
       }
       tool = t;
+      // no container found: that has to be filled in first
+      moreOpen = !t.container.trim();
       f = {
         name: t.name, version: t.version, category: t.category ?? '', description: t.description ?? '',
         homepage: t.homepage ?? '', container: t.container, scope: t.scope, program: t.program ?? t.id,
@@ -58,7 +60,10 @@
         cpus: t.resources?.cpus ?? 1, memory_gb: t.resources?.memory_gb ?? 2, ready: !t.draft,
       };
       inputs = Object.entries(t.inputs).map(([name, i]) => ({ name, type: i.type || 'any', optional: !!i.optional, description: i.description ?? '' }));
-      outputs = Object.entries(t.outputs).map(([name, o]) => ({ name, type: o.type || 'any', path: o.path, optional: !!o.optional, description: o.description ?? '' }));
+      outputs = Object.entries(t.outputs)
+        // the app's own "tables" output (its reports as tables) is not the tool's to edit
+        .filter(([name, o]) => !(t.report_tables && name === 'tables' && o.path === 'out/tables/*.tsv'))
+        .map(([name, o]) => ({ name, type: o.type || 'any', path: o.path, optional: !!o.optional, description: o.description ?? '' }));
       settings = Object.entries(t.settings).map(([name, s]) => ({
         name, label: s.label ?? name, type: s.type ?? 'string', value: s.default == null ? '' : String(s.default),
         description: s.description ?? '', options: (s.options ?? []).join(', '),
@@ -263,13 +268,62 @@
     outputs.push({ name, type: FILE_TYPES.includes(ext) ? ext : ext === 'tab' ? 'tsv' : 'any', path: pattern, optional: false, description: '' });
     toasts.show(`Added the output "${name}". Save, then try again to check it.`, 'info');
   }
+
+  // ---------------------------------------------------------------- set it up for me
+
+  let moreOpen = $state(false);
+  let settingUp = $state(false);
+  let setupLog = $state<string[]>([]);
+
+  /** The app works the command out from the tool's help, tries it and lists what it made. */
+  async function setUp() {
+    settingUp = true;
+    setupLog = [];
+    trial = null;
+    tryError = '';
+    try {
+      if (!(await save(true))) return;
+      // no ready-made container: build one from the tool's repository first
+      if (!f.container.trim() && tool?.build) {
+        let b = await post<Job>(`/api/tools/${encodeURIComponent(id)}/build`);
+        while (b.status === 'running') {
+          setupLog = b.log;
+          await new Promise((r) => setTimeout(r, 1500));
+          b = await get<Job>(`/api/jobs/${b.id}`);
+        }
+        setupLog = b.log.map((l) => l.replace(/^Error: /, ''));
+        if (b.status === 'failed') {
+          toasts.show('The container could not be built. The last lines of the build are shown.', 'error');
+          return;
+        }
+        await load();
+      }
+      let j = await post<Job>(`/api/tools/${encodeURIComponent(id)}/setup`, { reads_folder: readsFolder });
+      while (j.status === 'running') {
+        setupLog = j.log;
+        await new Promise((r) => setTimeout(r, 1200));
+        j = await get<Job>(`/api/jobs/${j.id}`);
+      }
+      setupLog = j.log.map((l) => l.replace(/^Error: /, ''));
+      const r = j.result as { ready: boolean; tried: boolean; trial?: Trial } | undefined;
+      await load();
+      trial = r?.trial ?? null;
+      if (j.status === 'failed') toasts.show(setupLog.at(-1) ?? 'The app could not set this tool up.', 'error');
+      else if (r?.ready) toasts.show(`${f.name} is set up and ready to use in workflows.`);
+      else toasts.show('The command is written. Check it, try it, then switch on Ready to use.', 'info');
+    } catch (e) {
+      toasts.show(errorText(e), 'error');
+    } finally {
+      settingUp = false;
+    }
+  }
 </script>
 
 <PageHeader title={tool ? `Edit ${f.name || tool.name}` : 'Edit a tool'} crumbs={[{ label: 'Tools', href: href('tools') }]}>
   {#snippet actions()}
     {#if tool}
       <Button variant="danger" icon="trash" onclick={() => (deleteOpen = true)}>Remove</Button>
-      <Button variant="primary" icon="check" busy={saving} onclick={() => save()}>Save</Button>
+      <Button variant={f.ready ? 'primary' : 'secondary'} icon="check" busy={saving} onclick={() => save()}>Save</Button>
     {/if}
   {/snippet}
 </PageHeader>
@@ -288,7 +342,7 @@
             {#if f.ready}
               Workflows can run this tool. Switch this off while you are still changing it.
             {:else}
-              Fill in the form, try it on one sample, then switch this on and save. Until then workflows refuse to run it.
+              Let the app set it up, or write the command yourself and try it on one sample. Then switch this on and save. Until then workflows refuse to run it.
               Everything here is kept on this computer only{tool.github ? `: nothing changes in ${tool.github.repo} on GitHub` : ''}.
             {/if}
           </span>
@@ -296,8 +350,44 @@
         <span class="flex items-center gap-2 text-sm font-semibold"><Toggle label="Ready to use in workflows" bind:checked={f.ready} /> Ready to use</span>
       </section>
 
+      {#if !f.ready}
+        <section class="card flex flex-col gap-3 border-brand p-5">
+          <h2 class="m-0 text-base font-semibold">Let the app set it up</h2>
+          <p class="m-0 text-[13px] text-ink-2">
+            The app reads the tool's own help, writes the command, tries it on one sample and lists the result files it finds.
+            This works for tools with the usual options. If it doesn't fit this tool, the command below is yours to change.
+          </p>
+          <div class="flex flex-wrap items-end gap-2">
+            <label class="flex min-w-[260px] flex-1 flex-col gap-1.5 text-[13px] font-semibold">
+              A folder of reads to try it on (its first sample is used)
+              <input class="input" bind:value={readsFolder} placeholder="Choose a folder" />
+            </label>
+            <Button icon="folder" onclick={() => (pickerOpen = true)}>Choose</Button>
+            <Button variant="primary" icon="play" busy={settingUp} disabled={!f.container.trim() && !tool.build} onclick={setUp}>Set it up for me</Button>
+          </div>
+          {#if !f.container.trim()}
+            <span class="text-xs text-warn-ink">
+              {tool.build
+                ? 'No ready-made container was found for this tool, so the app builds one first. That takes several minutes, once.'
+                : 'No container was found for this tool: open More options and fill in its container address first.'}
+            </span>
+          {/if}
+          {#if setupLog.length}
+            <ul class="m-0 flex list-none flex-col gap-1 rounded-lg bg-surface-2 p-3 text-[13px] text-ink-2">
+              {#each setupLog.slice(-12) as line}<li class="break-words">{line}</li>{/each}
+              {#if settingUp}<li class="text-muted">Working…</li>{/if}
+            </ul>
+          {/if}
+        </section>
+      {/if}
+
+      <details class="order-last rounded-2xl border border-line bg-surface" bind:open={moreOpen}>
+        <summary class="cursor-pointer px-5 py-4 text-base font-semibold">
+          More options <span class="text-[13px] font-normal text-muted">· name, container, inputs, outputs, settings (filled in for you; change them only if you need to)</span>
+        </summary>
+        <div class="flex flex-col gap-5 border-t border-line p-5">
       <section class="card flex flex-col gap-4 p-5">
-        <h2 class="m-0 text-base font-semibold">1. About the tool</h2>
+        <h2 class="m-0 text-base font-semibold">About the tool</h2>
         <div class="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3.5">
           <label class="flex flex-col gap-1.5 text-[13px] font-semibold">Name<input class="input" bind:value={f.name} /></label>
           <label class="flex flex-col gap-1.5 text-[13px] font-semibold">Version<input class="input" bind:value={f.version} placeholder="1.2.3" /></label>
@@ -308,7 +398,7 @@
       </section>
 
       <section class="card flex flex-col gap-4 p-5">
-        <h2 class="m-0 text-base font-semibold">2. Where it runs</h2>
+        <h2 class="m-0 text-base font-semibold">Where it runs</h2>
         <label class="flex flex-col gap-1.5 text-[13px] font-semibold">
           Container
           <input class="input font-mono text-[13px]" bind:value={f.container} placeholder="quay.io/biocontainers/mytool:1.2.3--h1234_0" />
@@ -340,7 +430,7 @@
       </section>
 
       <section class="card flex flex-col gap-3 p-5">
-        <h2 class="m-0 text-base font-semibold">3. What it takes in</h2>
+        <h2 class="m-0 text-base font-semibold">What it takes in</h2>
         <p class="m-0 text-[13px] text-muted">Each input is a file from the reads or from an earlier step. In the workflow builder you connect it.</p>
         {#each inputs as i, n (n)}
           <div class="flex flex-wrap items-end gap-2 border-t border-line pt-3">
@@ -360,7 +450,7 @@
       </section>
 
       <section class="card flex flex-col gap-3 p-5">
-        <h2 class="m-0 text-base font-semibold">4. What it makes</h2>
+        <h2 class="m-0 text-base font-semibold">What it makes</h2>
         <p class="m-0 text-[13px] text-muted">
           Each output is a file the command writes. The path says where: start it with <code>out/</code> and write the sample's name as
           <code>{'{sample}'}</code>. Later steps can be connected to an output, and it shows on the run's page.
@@ -384,7 +474,7 @@
       </section>
 
       <section class="card flex flex-col gap-3 p-5">
-        <h2 class="m-0 text-base font-semibold">5. Settings people can change <span class="font-normal text-muted">(optional)</span></h2>
+        <h2 class="m-0 text-base font-semibold">Settings people can change <span class="font-normal text-muted">(optional)</span></h2>
         <p class="m-0 text-[13px] text-muted">A setting shows in the workflow builder when this tool's step is selected. The command gets its value as <code>$S_name</code>.</p>
         {#each settings as s, n (n)}
           <div class="flex flex-wrap items-end gap-2 border-t border-line pt-3">
@@ -410,9 +500,11 @@
         {/each}
         <div><Button size="sm" icon="plus" onclick={() => settings.push({ name: '', label: '', type: 'string', value: '', description: '', options: '' })}>Add a setting</Button></div>
       </section>
+        </div>
+      </details>
 
       <section class="card flex flex-col gap-3 p-5">
-        <h2 class="m-0 text-base font-semibold">6. The command</h2>
+        <h2 class="m-0 text-base font-semibold">The command</h2>
         <p class="m-0 text-[13px] text-muted">
           What you would type in a terminal to run the tool on one sample, with the names from the guide in place of real file names.
           More than one line is fine: they run one after another.
@@ -433,7 +525,7 @@
       </section>
 
       <section class="card flex flex-col gap-3 p-5">
-        <h2 class="m-0 text-base font-semibold">7. Try it on one sample</h2>
+        <h2 class="m-0 text-base font-semibold">Try it on one sample</h2>
         <p class="m-0 text-[13px] text-muted">Saves your changes, runs the command once and shows what it made. Nothing is added to your runs.</p>
         {#if needsReads}
           <div class="flex flex-wrap items-end gap-2">
@@ -521,7 +613,7 @@
       </section>
     </div>
 
-    <aside aria-label="Guide" class="sticky top-4 flex flex-col gap-4 max-[1150px]:static">
+    <aside aria-label="Guide" class="sticky top-24 flex flex-col gap-4 max-[1150px]:static">
       <section class="card flex flex-col gap-2.5 p-5">
         <h2 class="m-0 text-base font-semibold">{todo ? `Still to do (${todo})` : 'Everything checks out'}</h2>
         <ul class="m-0 flex list-none flex-col gap-2 p-0 text-[13px]">

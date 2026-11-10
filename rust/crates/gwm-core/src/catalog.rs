@@ -12,6 +12,12 @@ use serde_yaml::{Mapping, Value};
 
 use crate::{paths, value};
 
+/// Kept with a tool's switched-off outputs (`tool_outputs.json`): its reports are
+/// not turned into tables.
+pub const REPORT_TABLES: &str = "__report_tables";
+/// The output a tool that writes reports offers them as tables under.
+pub const TABLES_OUTPUT: &str = "tables";
+
 pub static ID_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[a-z][a-z0-9_]*$").unwrap());
 
 // ---------------------------------------------------------------- tools
@@ -134,6 +140,10 @@ pub struct Tool {
     /// Extra versions added on the Tools page: version -> tool
     #[serde(skip)]
     pub variants: IndexMap<String, Tool>,
+    /// Its outputs that are reports (text, JSON) the engine also writes as
+    /// tables; empty when it has none or that is switched off for the tool
+    #[serde(skip)]
+    pub report_outputs: Vec<String>,
 }
 
 fn per_sample() -> String {
@@ -381,7 +391,46 @@ impl Catalog {
             t.dir = dir;
             base.variants.insert(t.version.clone(), t);
         }
+        self.offer_report_tables(&mut tools);
         Ok(tools)
+    }
+
+    /// Tools added on this computer that write a report (a text or JSON file)
+    /// also offer it as tables, their `tables` output, unless that is switched
+    /// off for the tool on the Tools page (`tool_outputs.json`). The engine
+    /// writes the tables at the end of the tool's step. Built-in tools are left
+    /// as they are (the RDH workflow stays the same as Galaxy's).
+    fn offer_report_tables(&self, tools: &mut IndexMap<String, Tool>) {
+        let off: IndexMap<String, Vec<String>> = fs::read_to_string(self.home.join("tool_outputs.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        fn offer(t: &mut Tool) {
+            t.report_outputs = t
+                .outputs
+                .iter()
+                .filter(|(_, o)| o.kind == "txt" || o.kind == "json")
+                .map(|(name, _)| name.clone())
+                .collect();
+            if !t.report_outputs.is_empty() && !t.outputs.contains_key(TABLES_OUTPUT) {
+                t.outputs.insert(
+                    TABLES_OUTPUT.into(),
+                    OutputSpec {
+                        kind: "tsv".into(),
+                        path: "out/tables/*.tsv".into(),
+                        optional: true,
+                        description: "Its reports as tables (made by the app): connect this to Summary tables.".into(),
+                    },
+                );
+            }
+        }
+        for tool in tools.values_mut() {
+            if tool.source == "built-in" || off.get(&tool.id).is_some_and(|o| o.iter().any(|x| x == REPORT_TABLES)) {
+                continue;
+            }
+            tool.variants.values_mut().for_each(offer);
+            offer(tool);
+        }
     }
 
     // ------------------------------------------------------------ databases

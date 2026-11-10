@@ -45,7 +45,9 @@
 <div
   class="w-[190px] rounded-xl bg-surface text-left text-ink shadow-sm
     {selected
-    ? 'border-2 border-brand shadow-[0_6px_18px_rgba(15,118,110,0.18)]'
+    ? data.state
+      ? 'border-2 border-[#eab308] shadow-[0_0_0_3px_rgba(234,179,8,0.28),0_6px_18px_rgba(234,179,8,0.3)]' // on a run's page: the step picked is yellow, whatever its state
+      : 'border-2 border-brand shadow-[0_6px_18px_rgba(15,118,110,0.18)]'
     : data.state === 'running'
       ? 'run-glow border-2 border-[#ef4444]'
       : data.state === 'failed'

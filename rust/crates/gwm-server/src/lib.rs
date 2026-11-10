@@ -2,6 +2,8 @@
 //! Runs are started as their own `gwm exec <run>` process, so closing the
 //! window or restarting the app never stops a run.
 
+pub mod autosetup;
+pub mod build;
 pub mod hardware;
 pub mod import;
 pub mod jobs;
@@ -102,6 +104,8 @@ pub async fn serve(addr: SocketAddr, cat: Catalog, gui: Option<PathBuf>) -> anyh
         .route("/api/tools/{id}/definition", post(save_tool))
         .route("/api/tools/{id}/help", post(tool_help))
         .route("/api/tools/{id}/try", post(try_tool))
+        .route("/api/tools/{id}/setup", post(set_up_tool))
+        .route("/api/tools/{id}/build", post(build_tool))
         .route("/api/tools/{id}/versions", get(tool_versions).post(add_tool_version))
         .route("/api/update", get(app_update))
         .route("/api/databases", get(list_databases))
@@ -114,6 +118,7 @@ pub async fn serve(addr: SocketAddr, cat: Catalog, gui: Option<PathBuf>) -> anyh
         .route("/api/runs/{id}/stop", post(stop_run))
         .route("/api/runs/{id}/resume", post(resume_run))
         .route("/api/runs/{id}/file", get(run_file))
+        .route("/api/runs/{id}/report", get(run_report))
         .with_state(app)
         // the desktop window loads the GUI from its own origin
         .layer(CorsLayer::permissive());
@@ -288,6 +293,8 @@ async fn list_tools(State(a): State<App>) -> Api {
             v["variants"] = json!(t.variants.keys().collect::<Vec<_>>());
             v["folder"] = json!(t.dir);
             v["hidden_outputs"] = json!(hidden.get(&t.id).cloned().unwrap_or_default());
+            // it writes reports, which the app also offers as tables (its `tables` output)
+            v["report_tables"] = json!(!t.report_outputs.is_empty());
             v
         })
         .collect();
@@ -304,7 +311,11 @@ struct OutputsReq {
 async fn set_tool_outputs(State(a): State<App>, UrlPath(id): UrlPath<String>, Json(b): Json<OutputsReq>) -> Api {
     let tools = a.cat.load_tools()?;
     let tool = tools.get(&id).ok_or_else(|| anyhow::anyhow!("unknown tool {id}"))?;
-    let hidden: Vec<String> = b.hidden.into_iter().filter(|o| tool.outputs.contains_key(o)).collect();
+    let hidden: Vec<String> = b
+        .hidden
+        .into_iter()
+        .filter(|o| tool.outputs.contains_key(o) || o == import::REPORT_TABLES)
+        .collect();
     import::set_hidden_outputs(&a.cat, &id, hidden.clone())?;
     ok(json!({"hidden_outputs": hidden}))
 }
@@ -541,7 +552,11 @@ fn spawn_exec(a: &App, run_id: &str) -> anyhow::Result<()> {
             });
         }
     }
-    cmd.spawn()?;
+    let mut child = cmd.spawn()?;
+    // collect it when it ends, so a run that stopped never looks as if it were still going
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
     Ok(())
 }
 
@@ -607,4 +622,39 @@ async fn run_file(
         );
     }
     Ok(resp)
+}
+
+#[derive(Deserialize)]
+struct SetUpReq {
+    /// a folder of reads to try the command on (empty: don't try it)
+    #[serde(default)]
+    reads_folder: String,
+}
+
+/// "Set it up for me": the command from the tool's help text, a try-out on one
+/// sample, the outputs from what it made.
+async fn set_up_tool(State(a): State<App>, UrlPath(id): UrlPath<String>, Json(b): Json<SetUpReq>) -> Api {
+    let cat = a.cat.clone();
+    ok(jobs::spawn("Set the tool up", move |r| {
+        autosetup::set_up(&cat, &id, &b.reads_folder, r)
+    }))
+}
+
+/// Build a container for a tool that has none, from its repository.
+async fn build_tool(State(a): State<App>, UrlPath(id): UrlPath<String>) -> Api {
+    let cat = a.cat.clone();
+    ok(jobs::spawn("Build the tool's container", move |r| {
+        build::build(&cat, &id, r)
+    }))
+}
+
+/// A problem report for a run that failed or stopped: one text file to save
+/// and send (no sequence data; sample and user names are replaced).
+async fn run_report(State(a): State<App>, UrlPath(id): UrlPath<String>) -> Api {
+    let text = tokio::task::spawn_blocking(move || {
+        let computer = hardware::check(&a.cat);
+        gwm_engine::diagnose::problem_report(&a.cat, &id, &computer)
+    })
+    .await??;
+    ok(json!({"text": text}))
 }

@@ -13,6 +13,8 @@ scope: per_sample
 resources: {cpus: 1, memory_gb: 2}
 requirements: {memory_gb: 1}
 databases: [kraken2_standard_8]
+# the Database setting picks another installed one in its place; the command keeps using $DB_kraken2_standard_8
+database_setting: database
 
 inputs:
   report: {type: txt, description: Kraken2 report.}
@@ -22,6 +24,16 @@ outputs:
   report: {type: txt, path: "out/{sample}.bracken.report.txt", description: Kraken-style report after re-estimation.}
 
 settings:
+  database:
+    label: Database
+    type: select
+    options: [kraken2_standard_8, kraken2_standard_16, kraken2_standard]
+    option_labels:
+      kraken2_standard_8: Standard-8 (8 GB memory)
+      kraken2_standard_16: Standard-16 (16 GB memory)
+      kraken2_standard: Standard, full size (100 GB memory)
+    default: kraken2_standard_8
+    description: The Kraken2 database the report was made with. Use the same one as the Kraken2 step.
   level:
     label: Taxonomic level
     type: select

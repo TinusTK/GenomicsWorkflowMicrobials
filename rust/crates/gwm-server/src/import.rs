@@ -150,6 +150,10 @@ impl Lookup for Online {
 
 // ---------------------------------------------------------------- outputs shown on the Run page
 
+/// Kept with a tool's switched-off outputs: its text and JSON reports are not
+/// turned into tables on the Run page (they are, unless this is there).
+pub use gwm_core::catalog::REPORT_TABLES;
+
 fn outputs_file(cat: &Catalog) -> PathBuf {
     cat.home.join("tool_outputs.json")
 }

@@ -27,7 +27,7 @@ use crate::jobs::Reporter;
 
 /// The folder under the data folder's tools/ that tools added from GitHub go in.
 pub const GITHUB_SOURCE: &str = "github";
-const AGENT: &str = "GenomicsWorkflowMicrobials";
+pub(crate) const AGENT: &str = "GenomicsWorkflowMicrobials";
 const APP_REPO: &str = "TinusTK/GenomicsWorkflowMicrobials";
 
 /// Names used in a command as `$IN_<name>` and `$S_<name>`.
@@ -49,14 +49,14 @@ fn fetch(url: &str) -> Result<Option<String>> {
     }
 }
 
-fn fetch_json(url: &str) -> Result<Option<serde_json::Value>> {
+pub(crate) fn fetch_json(url: &str) -> Result<Option<serde_json::Value>> {
     Ok(match fetch(url)? {
         Some(t) => Some(serde_json::from_str(&t)?),
         None => None,
     })
 }
 
-fn y(s: impl Into<String>) -> Value {
+pub(crate) fn y(s: impl Into<String>) -> Value {
     Value::String(s.into())
 }
 
@@ -169,7 +169,26 @@ fn fetch_files(owner: &str, repo: &str, branch: &str, files: &[String], dest: &P
     Ok(())
 }
 
-/// Add a tool from its GitHub repository. A repository that carries a ready
+/// `recipes/<owner>__<repo>.yml`: the tested setup of a well-known tool.
+pub fn recipe_file(full: &str) -> String {
+    format!("{}.yml", full.to_lowercase().replace('/', "__"))
+}
+
+/// The tested setup for a repository, when the app has one: the newest from
+/// the app's own repository (so new ones arrive without an update), else the
+/// one that came with the app.
+fn recipe(cat: &Catalog, full: &str) -> Option<String> {
+    let name = recipe_file(full);
+    fetch(&format!(
+        "https://raw.githubusercontent.com/{APP_REPO}/main/recipes/{name}"
+    ))
+    .ok()
+    .flatten()
+    .or_else(|| fs::read_to_string(cat.root.join("recipes").join(&name)).ok())
+}
+
+/// Add a tool from its GitHub repository. A tool with a tested setup
+/// (`recipes/`) is ready at once. A repository that carries a ready
 /// definition (`gwm/tool.yml`) is installed as it is; any other becomes a draft
 /// with what could be found out (name, description, licence, newest release,
 /// its BioContainers container), to finish in the tool editor.
@@ -200,6 +219,32 @@ pub fn add_from_github(cat: &Catalog, link: &str) -> Result<serde_json::Value> {
     let mut github = Mapping::new();
     github.insert(y("repo"), y(&full));
     github.insert(y("branch"), y(&branch));
+
+    // a tool this app has a tested setup for
+    if let Some(recipe) = recipe(cat, &full) {
+        let Value::Mapping(mut yaml) = serde_yaml::from_str(&recipe).context("reading the tool's tested setup")? else {
+            bail!("the tested setup for {full} is not a tool definition");
+        };
+        let tool: Tool =
+            serde_yaml::from_value(Value::Mapping(yaml.clone())).context("reading the tool's tested setup")?;
+        if !ID_RE.is_match(&tool.id) || tools.contains_key(&tool.id) {
+            bail!("a tool called {} is already here", tool.id);
+        }
+        yaml.insert(y("github"), Value::Mapping(github));
+        yaml.insert(y("recipe"), Value::Bool(true));
+        dump_yaml(
+            &yaml,
+            &cat.home
+                .join("tools")
+                .join(GITHUB_SOURCE)
+                .join(&tool.id)
+                .join("tool.yml"),
+        )?;
+        return Ok(json!({
+            "id": tool.id, "name": tool.name, "draft": false,
+            "notes": [format!("{} {} has a tested setup: it is ready to use in workflows.", tool.name, tool.version)],
+        }));
+    }
 
     // a repository made for this app
     if let Some(ready) = fetch(&format!("{raw}/gwm/tool.yml"))? {
@@ -253,6 +298,7 @@ pub fn add_from_github(cat: &Catalog, link: &str) -> Result<serde_json::Value> {
                 .as_str()
                 .map(|t| t.trim_start_matches(['v', 'V']).to_string())
         });
+    let mut buildable: Option<(&str, String)> = None;
     let (program, version, container) = match &found {
         Some((package, versions)) => {
             let (version, image) = release
@@ -271,9 +317,15 @@ pub fn add_from_github(cat: &Catalog, link: &str) -> Result<serde_json::Value> {
             (package.clone(), version, image)
         }
         None => {
-            notes.push(
-                "No container was found on BioContainers: type the tool's container address in the editor.".into(),
-            );
+            // no ready-made container: one can often be built from the repository
+            buildable = crate::build::detect(&full, &branch);
+            notes.push(match &buildable {
+                Some((kind, _)) => format!(
+                    "No ready-made container was found, so the app will build one from {}.",
+                    crate::build::source_words(kind)
+                ),
+                None => "No container was found, and the repository has nothing to build one from: type the tool's container address in the editor (More options).".into(),
+            });
             (lower.clone(), release.clone().unwrap_or_default(), String::new())
         }
     };
@@ -311,11 +363,17 @@ pub fn add_from_github(cat: &Catalog, link: &str) -> Result<serde_json::Value> {
     m.insert(y("draft"), Value::Bool(true));
     m.insert(y("program"), y(&program));
     m.insert(y("github"), Value::Mapping(github));
+    if let Some((kind, file)) = &buildable {
+        let mut b = Mapping::new();
+        b.insert(y("kind"), y(*kind));
+        b.insert(y("file"), y(file));
+        m.insert(y("build"), Value::Mapping(b));
+    }
     dump_yaml(
         &m,
         &cat.home.join("tools").join(GITHUB_SOURCE).join(&id).join("tool.yml"),
     )?;
-    notes.push("Its command, inputs and outputs still have to be filled in.".into());
+    notes.push("Press Set it up for me and the app works out the rest.".into());
     Ok(json!({"id": id, "name": repo, "draft": true, "notes": notes}))
 }
 
@@ -393,7 +451,7 @@ pub struct Definition {
 }
 
 /// A tool of this computer (not one that ships with the app).
-fn own_tool(cat: &Catalog, id: &str) -> Result<Tool> {
+pub(crate) fn own_tool(cat: &Catalog, id: &str) -> Result<Tool> {
     let tool = cat
         .load_tools()?
         .swap_remove(id)
@@ -592,6 +650,17 @@ pub fn show_help(cat: &Catalog, id: &str, program: &str, r: &Reporter) -> Result
         .load_tools()?
         .swap_remove(id)
         .ok_or_else(|| anyhow!("unknown tool {id}"))?;
+    r.log("Getting the container if it is not here yet (the first time can take a few minutes)");
+    let printed = help_text(cat, &tool, program)?;
+    if printed.trim().is_empty() {
+        bail!("{program} printed nothing: check the program's name and the container");
+    }
+    r.result(json!({"text": printed}));
+    Ok(())
+}
+
+/// What `<program> --help` prints in the tool's container (empty when nothing).
+pub(crate) fn help_text(cat: &Catalog, tool: &Tool, program: &str) -> Result<String> {
     let program = program.trim();
     if program.is_empty() || program.contains(['\n', ';', '|', '&', '`', '$']) {
         bail!(
@@ -599,33 +668,25 @@ pub fn show_help(cat: &Catalog, id: &str, program: &str, r: &Reporter) -> Result
             tool.id
         );
     }
-    let mut t = trial(cat, &tool, "help")?;
+    let mut t = trial(cat, tool, "help")?;
     t.command = Some(format!(
         "{{ {program} --help || {program} -h || {program} help || true; }} 2>&1 | head -n 400"
     ));
-    r.log("Getting the container if it is not here yet (the first time can take a few minutes)");
     let done = trial::run(&t, gwm_engine::backend::detect().as_ref(), &AtomicBool::new(false))?;
     // what the program printed, without the container download lines
     let printed = fs::read_to_string(done.dir.join(".command.out")).unwrap_or_default();
     let _ = fs::remove_dir_all(&done.dir);
-    if printed.trim().is_empty() {
-        bail!(
-            "{program} printed nothing: check the program's name and the container. {}",
-            done.log
-        );
-    }
-    r.result(json!({"text": printed.trim_end()}));
-    Ok(())
+    Ok(printed.trim_end().to_string())
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct TryRequest {
     /// a folder of reads: its first sample is used for inputs that take reads
     #[serde(default)]
-    reads_folder: String,
+    pub(crate) reads_folder: String,
     /// input -> a file on this computer, for the other inputs
     #[serde(default)]
-    files: IndexMap<String, String>,
+    pub(crate) files: IndexMap<String, String>,
 }
 
 /// Run the tool's command once on one sample and report what it made.
@@ -637,7 +698,22 @@ pub fn try_tool(cat: &Catalog, id: &str, req: TryRequest, r: &Reporter) -> Resul
     if tool.command.trim().is_empty() {
         bail!("write the command first");
     }
-    let mut t = trial(cat, &tool, "sample")?;
+    r.log(format!(
+        "Running {} (getting the container first if it is not here yet)",
+        tool.name
+    ));
+    let done = run_try(cat, &tool, &req)?;
+    r.result(serde_json::to_value(&done)?);
+    if done.exit != 0 {
+        bail!("the command stopped with an error (exit code {})", done.exit);
+    }
+    Ok(())
+}
+
+/// The tool's command, once, on the first sample of the reads folder (and the
+/// files given for its other inputs).
+pub(crate) fn run_try(cat: &Catalog, tool: &Tool, req: &TryRequest) -> Result<trial::TrialResult> {
+    let mut t = trial(cat, tool, "sample")?;
     for (name, spec) in &tool.inputs {
         if spec.kind == "reads" {
             if req.reads_folder.trim().is_empty() {
@@ -672,16 +748,7 @@ pub fn try_tool(cat: &Catalog, id: &str, req: TryRequest, r: &Reporter) -> Resul
     if !tool.per_sample() {
         t.sample = "all".into();
     }
-    r.log(format!(
-        "Running {} on {} (getting the container first if it is not here yet)",
-        tool.name, t.sample
-    ));
-    let done = trial::run(&t, gwm_engine::backend::detect().as_ref(), &AtomicBool::new(false))?;
-    r.result(serde_json::to_value(&done)?);
-    if done.exit != 0 {
-        bail!("the command stopped with an error (exit code {})", done.exit);
-    }
-    Ok(())
+    trial::run(&t, gwm_engine::backend::detect().as_ref(), &AtomicBool::new(false))
 }
 
 // ---------------------------------------------------------------- versions and updates

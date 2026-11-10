@@ -36,6 +36,14 @@ impl Reporter {
     pub fn log(&self, msg: impl Into<String>) {
         self.0.lock().unwrap().log.push(msg.into());
     }
+    /// A line of a long output (a container build): only the last lines are kept.
+    pub fn progress_line(&self, line: &str) {
+        let mut job = self.0.lock().unwrap();
+        if job.log.len() > 200 {
+            job.log.remove(2);
+        }
+        job.log.push(line.to_string());
+    }
     pub fn progress(&self, done: u64, total: u64) {
         self.0.lock().unwrap().progress = Some((done, total));
     }

@@ -177,6 +177,37 @@ pub fn runnable(wf: &Workflow, tools: &IndexMap<String, Tool>) -> Result<IndexMa
     Ok(ok)
 }
 
+/// In a tool.yml: the setting that picks which database the step uses, in
+/// place of the first one in `databases:` (Kraken2's Standard-8, Standard-16
+/// or full Standard). The command keeps using `$DB_<the first one>`.
+pub const DATABASE_SETTING: &str = "database_setting";
+
+/// The databases a step uses, and (when its setting picked another than the
+/// tool's own first one) that first one's name -> the one picked, so the
+/// command's `$DB_<first>` still points at the right folder.
+pub fn step_databases(tool: &Tool, step: &Step) -> (Vec<String>, IndexMap<String, String>) {
+    let mut dbs = tool.databases.clone();
+    let mut alias = IndexMap::new();
+    let picked = tool
+        .extra
+        .get(DATABASE_SETTING)
+        .and_then(Value::as_str)
+        .and_then(|name| {
+            step.settings
+                .get(name)
+                .or_else(|| tool.settings.get(name).map(|s| &s.default))
+        })
+        .map(value::to_text)
+        .filter(|p| !p.is_empty());
+    if let (Some(picked), Some(first)) = (picked, dbs.first_mut()) {
+        if *first != picked {
+            alias.insert(first.clone(), picked.clone());
+            *first = picked;
+        }
+    }
+    (dbs, alias)
+}
+
 // ---------------------------------------------------------------- run plan
 
 /// Everything the engine needs to run a workflow; saved as plan.json in the run.
@@ -213,11 +244,17 @@ pub struct PlanStep {
     /// output -> path pattern (`{sample}` = sample id)
     pub outputs: IndexMap<String, PlanOutput>,
     pub databases: Vec<String>,
+    /// a database the step picked in place of the tool's own: the tool's own name -> the one picked
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub db_alias: IndexMap<String, String>,
     pub files: Vec<String>,
     /// results folder, relative to the run's results/ (`{sample}` = sample id)
     pub publish: String,
     pub versions: IndexMap<String, String>,
     pub command: String,
+    /// outputs that are reports (text, JSON): the engine also writes them as tables (out/tables/)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub report_outputs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -254,11 +291,21 @@ pub fn plan(
                 r.id, tool.name
             ));
         }
-        for d in &tool.databases {
+        let (step_dbs, db_alias) = step_databases(tool, step);
+        let mut resources = tool
+            .resources
+            .merged(step.resources.as_ref().unwrap_or(&Resources::default()));
+        for d in &step_dbs {
             let Some(db) = databases.get(d) else {
                 return err(format!("step {}: database '{d}' is not in databases/catalog.yml", r.id));
             };
             used_dbs.insert(d.clone(), db.install_dir.clone());
+            // a database the step chose is loaded into memory whole: room for it and a little more
+            if let Some(gb) = db.extra.get("memory_gb").and_then(Value::as_u64) {
+                if tool.extra.get(DATABASE_SETTING).is_some() {
+                    resources.memory_gb = Some(resources.memory_gb.unwrap_or(0).max(gb as u32 + 2));
+                }
+            }
         }
         let per_sample = tool.per_sample();
         let publish = step.publish.clone().unwrap_or_else(|| {
@@ -279,9 +326,7 @@ pub fn plan(
             per_sample,
             enabled: step.enabled(),
             runnable: run[&r.id],
-            resources: tool
-                .resources
-                .merged(step.resources.as_ref().unwrap_or(&Resources::default())),
+            resources,
             settings: r.settings.iter().map(|(k, v)| (k.clone(), value::to_text(v))).collect(),
             inputs: tool
                 .inputs
@@ -311,11 +356,13 @@ pub fn plan(
                     )
                 })
                 .collect(),
-            databases: tool.databases.clone(),
+            databases: step_dbs,
+            db_alias,
             files: tool.files.clone(),
             publish,
             versions: tool.version_commands(),
             command: tool.command.clone(),
+            report_outputs: tool.report_outputs.clone(),
         });
     }
     used_dbs.sort_keys();
