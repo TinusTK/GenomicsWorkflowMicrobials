@@ -39,7 +39,7 @@ versions:
   count: echo 9.9
 command: |
   echo "low_memory: no" >> .ntg_notes
-  printf '%s\t%s\t%s\n' "$SAMPLE" "$(cat "$IN_reads_1" "$IN_reads_2" | wc -l)" "$S_word" > "out/$SAMPLE.count.tsv"
+  printf '%s\t%s\t%s\n' "$SAMPLE" "$(( $(cat "$IN_reads_1" "$IN_reads_2" | wc -l) ))" "$S_word" > "out/$SAMPLE.count.tsv"
   [ "$SAMPLE" = A ] && touch "out/$SAMPLE.extra.txt" || true
 "#,
     );
