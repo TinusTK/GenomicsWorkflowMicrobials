@@ -346,6 +346,7 @@ struct StartReq {
 }
 
 /// The app's settings a run needs (data folder, runs folder, ...), passed on to it.
+#[cfg(target_os = "linux")]
 fn run_env() -> Vec<(String, String)> {
     std::env::vars()
         .filter(|(k, _)| k.starts_with("GWM_") || k.starts_with("NTG_") || k == "PATH" || k == "HOME")
