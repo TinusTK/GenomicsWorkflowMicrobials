@@ -1,5 +1,6 @@
 <script lang="ts">
   import PageHeader from '../lib/PageHeader.svelte';
+  import RemoveEverything from '../lib/RemoveEverything.svelte';
   import Button from '../lib/ui/Button.svelte';
   import Icon from '../lib/ui/Icon.svelte';
   import { backendStatus, invoke, isDesktop, openFolder, openLink } from '../lib/desktop';
@@ -156,13 +157,23 @@ Containers: ${engine ?? 'none found'}
           {#if !update}
             You have version {hw.app_version}. The app looks for a newer version each time it opens.
           {:else if update.newer}
-            <strong>Version {update.latest} is out</strong> (you have {update.current}). Download the installer and run it: your
-            workflows, tools, databases and runs are kept.
+            <strong>Version {update.latest} is out</strong> (you have {update.current}).
+            {#if live.updating}
+              {live.updatePercent == null ? 'Getting the update…' : live.updatePercent < 100 ? `Downloading the update: ${live.updatePercent}%` : 'Installing: the app closes and opens again by itself.'}
+            {:else if isDesktop()}
+              Update now downloads it, installs it over this version and opens the app again. Your workflows, tools, databases
+              and runs are kept, and a run in progress carries on.
+            {:else}
+              Download the installer and run it: your workflows, tools, databases and runs are kept.
+            {/if}
           {:else}
             <span class="flex items-center gap-2 text-ok-ink"><Icon name="check" /> You have the newest version ({update.current}).</span>
           {/if}
         </span>
-        {#if update?.newer}
+        {#if update?.newer && isDesktop()}
+          <Button variant="primary" icon="download" busy={live.updating} onclick={() => live.installUpdate()}>Update now</Button>
+          <Button onclick={() => openLink(update!.url)}>Download page</Button>
+        {:else if update?.newer}
           <Button variant="primary" icon="download" onclick={() => openLink(update!.url)}>Open the download page</Button>
         {/if}
         <Button icon="refresh" busy={checking} onclick={checkUpdate}>Check for updates</Button>
@@ -182,6 +193,8 @@ Containers: ${engine ?? 'none found'}
       </div>
       <p class="m-0 text-xs text-muted">Email: {EMAIL}</p>
     </section>
+
+    <RemoveEverything />
 
     {#if inTray}
       <section class="card flex gap-3 p-5 text-[13px] leading-relaxed text-ink-2">

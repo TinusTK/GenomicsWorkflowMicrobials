@@ -4,6 +4,7 @@
 
 pub mod autosetup;
 pub mod build;
+pub mod cleanup;
 pub mod hardware;
 pub mod import;
 pub mod jobs;
@@ -108,6 +109,7 @@ pub async fn serve(addr: SocketAddr, cat: Catalog, gui: Option<PathBuf>) -> anyh
         .route("/api/tools/{id}/build", post(build_tool))
         .route("/api/tools/{id}/versions", get(tool_versions).post(add_tool_version))
         .route("/api/update", get(app_update))
+        .route("/api/cleanup", get(cleanup_overview).post(cleanup_remove))
         .route("/api/databases", get(list_databases))
         .route("/api/databases/{id}/install", post(install_database))
         .route("/api/jobs/{id}", get(get_job))
@@ -384,6 +386,24 @@ async fn tool_updates(State(a): State<App>) -> Api {
 /// Is there a newer release of the app?
 async fn app_update() -> Api {
     ok(tokio::task::spawn_blocking(tooledit::app_update).await??)
+}
+
+/// What "Remove everything" could remove, with sizes.
+async fn cleanup_overview(State(a): State<App>) -> Api {
+    ok(tokio::task::spawn_blocking(move || cleanup::overview(&a.cat)).await?)
+}
+
+#[derive(Deserialize)]
+struct CleanupReq {
+    #[serde(default)]
+    containers: bool,
+    #[serde(default)]
+    data: bool,
+}
+
+/// Remove the tool containers and/or the data folder (never the run folders).
+async fn cleanup_remove(State(a): State<App>, Json(b): Json<CleanupReq>) -> Api {
+    ok(tokio::task::spawn_blocking(move || cleanup::remove(&a.cat, b.containers, b.data)).await??)
 }
 
 async fn list_databases(State(a): State<App>) -> Api {

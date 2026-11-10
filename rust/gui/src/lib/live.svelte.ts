@@ -1,7 +1,7 @@
 // Things several screens show, kept fresh in the background.
 
 import { get, type Database, type Hardware, type RunSummary, type Usage } from './api';
-import { openLink } from './desktop';
+import { invoke, isDesktop, openLink } from './desktop';
 import { toasts } from './toast.svelte';
 
 /** Whether a newer version of the app is out (GitHub releases). */
@@ -21,6 +21,9 @@ class Live {
   /** the newest release, once looked up (at every start, and from Settings) */
   update = $state<AppUpdate | null>(null);
   #lookedForUpdate = false;
+  /** the desktop app is downloading or installing an update; the percentage once the size is known */
+  updating = $state(false);
+  updatePercent = $state<number | null>(null);
 
   running = $derived(this.runs.filter((r) => r.status === 'running' || r.status === 'queued').length);
   missingDb = $derived(this.databases.filter((d) => !d.installed));
@@ -34,12 +37,38 @@ class Live {
         this.#lookedForUpdate = true;
         this.checkUpdate()
           .then((u) => {
-            if (u.newer) toasts.show(`Version ${u.latest} is out (you have ${u.current}).`, 'info', { label: 'Download', run: () => openLink(u.url) }, 20000);
+            if (!u.newer) return;
+            const action = isDesktop() ? { label: 'Update now', run: () => void this.installUpdate() } : { label: 'Download', run: () => openLink(u.url) };
+            toasts.show(`Version ${u.latest} is out (you have ${u.current}).`, 'info', action, 20000);
           })
           .catch(() => {});
       }
     } catch {
       this.online = false;
+    }
+  }
+  /**
+   * Desktop app: download the newest version, install it over this one and open
+   * it again (the app closes by itself). When that can't be done, the download
+   * page is offered instead.
+   */
+  async installUpdate() {
+    if (this.updating) return;
+    this.updating = true;
+    this.updatePercent = null;
+    const watch = setInterval(async () => {
+      const p = await invoke<{ done: number; total: number }>('update_progress').catch(() => null);
+      if (p && p.total > 0) this.updatePercent = Math.min(100, Math.round((p.done / p.total) * 100));
+    }, 400);
+    try {
+      await invoke('update_install');
+    } catch (e) {
+      const page = this.update?.url ?? 'https://github.com/TinusTK/GenomicsWorkflowMicrobials/releases/latest';
+      toasts.show(String(e), 'error', { label: 'Download page', run: () => openLink(page) }, 10000);
+    } finally {
+      clearInterval(watch);
+      this.updating = false;
+      this.updatePercent = null;
     }
   }
   /** Ask GitHub for the newest release. */

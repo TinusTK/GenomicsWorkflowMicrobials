@@ -58,9 +58,16 @@ again when you open the app.
 ### Updating
 
 The app looks for a newer version each time it opens and tells you when one
-is out; **Settings › Check for updates** looks again and opens
-the download page. Run the new installer over the old one: your workflows,
-tools, databases and runs are kept.
+is out. Press **Update now** (in that message, or in **Settings**): the app
+downloads the new version for your computer, installs it over the old one and
+opens again. Your workflows, tools, databases and runs are kept, and a run in
+progress carries on. Nothing needs uninstalling.
+
+Versions up to 2.0.1 can't do this yet: install 2.0.2 or newer once from the
+[download page](https://github.com/TinusTK/GenomicsWorkflowMicrobials/releases/latest)
+(run the installer over the old version), and the app updates itself from
+then on. Every update is checked against the app's own signature before it is
+installed.
 
 ## What the built-in workflow does
 
@@ -137,6 +144,21 @@ with the date and the run's name. Delete the folder to delete the run.
 Your own workflows, the tools you added, extra tool versions and the databases
 are in `~/.gwm` (on Windows, on the Linux side). **Settings** shows each
 folder and opens it.
+
+### Removing the app completely
+
+Uninstalling removes only the program. To take away the rest first, open
+**Settings › Remove everything**, press **Show what can be removed** and tick
+what should go. Each item shows how much disk it uses:
+
+- **Tool containers:** the downloaded containers the tools run in.
+- **App data:** your workflows, added tools, databases and working files.
+- **Docker** and **Ubuntu** (Windows only): Docker inside the Linux side of
+  Windows, or that whole Ubuntu with everything kept in it.
+
+Nothing is ticked to start with, and you confirm once before anything is
+removed. It can't be undone. Your runs in Documents are never touched, and
+nothing is removed while a run is going. Then uninstall the app the usual way.
 
 ## Adding tools
 

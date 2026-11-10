@@ -9,6 +9,7 @@
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -29,6 +30,17 @@ struct Backend {
     problem: Mutex<Option<String>>,
     /// the app has a system tray icon: closing the window hides it there
     in_tray: Mutex<bool>,
+    /// an update is being downloaded or installed
+    updating: AtomicBool,
+    /// bytes of the update downloaded so far, and its full size (0 until known)
+    update_done: AtomicU64,
+    update_total: AtomicU64,
+}
+
+#[derive(Serialize)]
+struct UpdateProgress {
+    done: u64,
+    total: u64,
 }
 
 #[derive(Serialize)]
@@ -281,6 +293,216 @@ async fn save_text_file(app: tauri::AppHandle, name: String, text: String) -> Re
     Ok(Some(path.display().to_string()))
 }
 
+// ---------------------------------------------------------------- remove everything
+// Settings > Remove everything, the parts only the desktop app can reach on
+// Windows: Docker inside WSL and the WSL Ubuntu itself. (The tool containers
+// and the data folder are the engine's: `/api/cleanup`.)
+
+#[derive(Serialize, Default)]
+struct Extras {
+    /// Docker and Ubuntu can be removed here (Windows with the app's WSL distribution)
+    windows: bool,
+    distro: String,
+    /// Docker's own folder inside WSL; nothing when Docker is not installed there
+    docker_bytes: Option<u64>,
+    /// the Ubuntu's disk file
+    ubuntu_bytes: Option<u64>,
+}
+
+/// A command as root inside the app's WSL distribution: its output, or what went wrong.
+#[cfg(windows)]
+fn wsl_root(script: &str) -> Result<String, String> {
+    let out = Command::new("wsl.exe")
+        .args(["-d", &distro(), "-u", "root", "--", "bash", "-c", script])
+        .creation_flags(NO_WINDOW)
+        .output()
+        .map_err(|e| format!("Could not start WSL: {e}"))?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    } else {
+        let err = String::from_utf8_lossy(&out.stderr);
+        Err(err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("it did not work").trim().to_string())
+    }
+}
+
+/// Size of the Ubuntu's disk file (Windows keeps where it is in the registry).
+#[cfg(windows)]
+fn ubuntu_bytes(distro: &str) -> Option<u64> {
+    if distro.is_empty() || !distro.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)) {
+        return None;
+    }
+    let script = format!(
+        "Get-ChildItem 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Lxss' | ForEach-Object {{ Get-ItemProperty $_.PSPath }} | \
+         Where-Object {{ $_.DistributionName -eq '{distro}' }} | ForEach-Object {{ (Get-Item -LiteralPath (Join-Path $_.BasePath 'ext4.vhdx')).Length }}"
+    );
+    let out = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .creation_flags(NO_WINDOW)
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&out.stdout).lines().find_map(|l| l.trim().parse().ok())
+}
+
+#[tauri::command]
+async fn extras_overview() -> Extras {
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(|| {
+            let d = distro();
+            if !wsl_distros().is_some_and(|l| l.iter().any(|x| x.eq_ignore_ascii_case(&d))) {
+                return Extras { distro: d, ..Extras::default() };
+            }
+            // newer Docker keeps its images in containerd's folder
+            let docker = wsl_root("command -v docker >/dev/null 2>&1 && du -sbc /var/lib/docker /var/lib/containerd 2>/dev/null | tail -1 | cut -f1");
+            Extras {
+                windows: true,
+                docker_bytes: docker.ok().and_then(|t| t.trim().parse().ok()),
+                ubuntu_bytes: ubuntu_bytes(&d),
+                distro: d,
+            }
+        })
+        .await
+        .unwrap_or_default()
+    }
+    #[cfg(not(windows))]
+    Extras::default()
+}
+
+/// Windows: take Docker out of the app's Ubuntu, with every container in it.
+#[tauri::command]
+async fn remove_docker() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let script = "(systemctl disable --now docker.socket docker containerd 2>/dev/null || service docker stop 2>/dev/null || true); \
+                      for p in docker.io docker-ce docker-ce-cli containerd containerd.io; do \
+                        if dpkg -s \"$p\" >/dev/null 2>&1; then DEBIAN_FRONTEND=noninteractive apt-get purge -y \"$p\" >/dev/null || exit 1; fi; \
+                      done; \
+                      rm -rf /var/lib/docker /var/lib/containerd; \
+                      if command -v docker >/dev/null 2>&1; then echo 'Docker is still there: it was not installed the usual way' >&2; exit 1; fi";
+        tauri::async_runtime::spawn_blocking(move || wsl_root(script).map(|_| ()))
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(not(windows))]
+    Err("only on Windows".into())
+}
+
+/// Windows: delete the app's WSL Ubuntu, with everything kept in it (the tool
+/// containers, Docker, the data folder and anything else of the user's there).
+#[tauri::command]
+async fn remove_ubuntu(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            // our engine lives there: stop it first
+            shutdown();
+            let state = app.state::<Backend>();
+            if let Some(mut child) = state.child.lock().unwrap().take() {
+                let _ = child.kill();
+            }
+            let d = distro();
+            let out = Command::new("wsl.exe")
+                .args(["--unregister", &d])
+                .creation_flags(NO_WINDOW)
+                .output()
+                .map_err(|e| format!("Could not start WSL: {e}"))?;
+            if !out.status.success() {
+                return Err(format!("Windows could not remove {d}. Try again after restarting the computer."));
+            }
+            *state.problem.lock().unwrap() = Some("distro".into());
+            Ok(())
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        Err("only on Windows".into())
+    }
+}
+
+/// Close the app fully (also from the system tray).
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+/// How far the update's download is (the GUI asks while `update_install` works).
+#[tauri::command]
+fn update_progress(state: State<Backend>) -> UpdateProgress {
+    UpdateProgress { done: state.update_done.load(Ordering::Relaxed), total: state.update_total.load(Ordering::Relaxed) }
+}
+
+/// What went wrong with an update, in plain words.
+fn update_error(e: tauri_plugin_updater::Error) -> String {
+    use tauri_plugin_updater::Error as E;
+    match e {
+        E::ReleaseNotFound | E::TargetNotFound(_) | E::TargetsNotFound(_) => {
+            "The newest version has no automatic update for this computer. Use the download page instead.".into()
+        }
+        E::Reqwest(_) | E::Network(_) => "Could not reach the download. Check the internet connection and try again.".into(),
+        E::Minisign(_) | E::SignedVersionMismatch { .. } | E::MissingSignedVersion => {
+            "The downloaded update did not pass its safety check, so it was not installed. Try again, or use the download page.".into()
+        }
+        E::AuthenticationFailed => "The update needs your password to install, and that was cancelled.".into(),
+        other => format!("The update could not be installed: {other}. Use the download page instead."),
+    }
+}
+
+/// Update the app in place: download the newest version for this computer, check
+/// it carries our signature, install it over this one and open it again. Windows:
+/// the installer closes this app and starts the new one. Runs carry on: each is
+/// its own process, using its own copy of the engine.
+#[tauri::command]
+async fn update_install(app: tauri::AppHandle) -> Result<(), String> {
+    if app.state::<Backend>().updating.swap(true, Ordering::SeqCst) {
+        return Err("An update is already being installed.".into());
+    }
+    let result = update_now(&app).await;
+    app.state::<Backend>().updating.store(false, Ordering::SeqCst);
+    result?;
+    // Mac and Linux: the new version is in place, start it
+    shutdown();
+    app.restart()
+}
+
+async fn update_now(app: &tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+    {
+        let state = app.state::<Backend>();
+        state.update_done.store(0, Ordering::Relaxed);
+        state.update_total.store(0, Ordering::Relaxed);
+    }
+    let closing = app.clone();
+    let updater = app
+        .updater_builder()
+        // Windows, right before the installer takes over: stop our engine so its files can be replaced
+        .on_before_exit(move || {
+            shutdown();
+            closing.cleanup_before_exit();
+        })
+        .build()
+        .map_err(update_error)?;
+    let Some(update) = updater.check().await.map_err(update_error)? else {
+        return Err("You already have the newest version.".into());
+    };
+    let counting = app.clone();
+    update
+        .download_and_install(
+            move |chunk, total| {
+                let state = counting.state::<Backend>();
+                state.update_done.fetch_add(chunk as u64, Ordering::Relaxed);
+                if let Some(total) = total {
+                    state.update_total.store(total, Ordering::Relaxed);
+                }
+            },
+            || {},
+        )
+        .await
+        .map_err(update_error)
+}
+
 /// Bring the window back (from the system tray, or when the app is started again).
 fn show_window(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -325,8 +547,23 @@ fn main() {
         // started a second time: show the window that is already there
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_window(app)))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Backend::default())
-        .invoke_handler(tauri::generate_handler![backend_status, restart_backend, open_folder, open_url, save_text_file, setup_wsl, setup_docker])
+        .invoke_handler(tauri::generate_handler![
+            backend_status,
+            restart_backend,
+            open_folder,
+            open_url,
+            save_text_file,
+            setup_wsl,
+            setup_docker,
+            update_install,
+            update_progress,
+            extras_overview,
+            remove_docker,
+            remove_ubuntu,
+            quit_app
+        ])
         .setup(|app| {
             let handle = app.handle().clone();
             #[cfg(not(target_os = "linux"))]
