@@ -9,7 +9,6 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::{bail, Result};
 use gwm_core::{paths, Catalog};
@@ -20,7 +19,7 @@ use serde_json::{json, Value};
 const LOCAL_PREFIX: &str = "gwm-local/";
 
 fn docker(args: &[&str]) -> Option<String> {
-    let out = Command::new("docker").args(args).output().ok()?;
+    let out = gwm_engine::docker::command().args(args).output().ok()?;
     out.status
         .success()
         .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
@@ -133,7 +132,10 @@ pub fn remove(cat: &Catalog, containers: bool, data: bool) -> Result<Value> {
     let mut problems = Vec::new();
     if containers {
         for image in installed_images(cat).unwrap_or_default() {
-            match Command::new("docker").args(["image", "rm", "--force", &image]).output() {
+            match gwm_engine::docker::command()
+                .args(["image", "rm", "--force", &image])
+                .output()
+            {
                 Ok(out) if out.status.success() => removed_images += 1,
                 Ok(out) => problems.push(format!("{image}: {}", String::from_utf8_lossy(&out.stderr).trim())),
                 Err(e) => problems.push(format!("{image}: {e}")),

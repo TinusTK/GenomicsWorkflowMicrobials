@@ -3,7 +3,7 @@
 # Kept outside the workspace: it needs each system's web view to build.
 [package]
 name = "gwm-desktop"
-version = "2.0.2"
+version = "2.0.3"
 description = "Genomics Workflow Microbials"
 edition = "2021"
 license = "MIT"

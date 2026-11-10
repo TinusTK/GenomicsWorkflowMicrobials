@@ -124,7 +124,9 @@ fn unpack(url: &str, dest: &Path) -> Result<()> {
 /// `docker build`, with its progress in the job's log.
 fn docker_build(tag: &str, recipe: &Path, context: &Path, r: &Reporter) -> Result<()> {
     // one stream for both: the older builder prints its steps on stdout, the newer on stderr
-    let mut child = Command::new("sh")
+    let mut cmd = Command::new("sh");
+    gwm_engine::docker::apply(&mut cmd);
+    let mut child = cmd
         .args(["-c", "exec docker build \"$@\" 2>&1", "sh", "-t", tag, "-f"])
         .arg(recipe)
         .arg(context)

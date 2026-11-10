@@ -55,6 +55,10 @@ export interface Hardware {
   os: string | null;
   docker: string | null;
   docker_error: string | null;
+  /** Docker's own words when it did not answer */
+  docker_detail?: string | null;
+  /** "macos" or "linux" (also inside WSL) */
+  platform?: string;
   apptainer: string | null;
   disk_free_gb: { work: number | null; databases: number | null };
   app_version: string;

@@ -110,6 +110,8 @@ fn finish(run: &Value) {
 }
 
 fn main() -> Result<()> {
+    // a Mac app opened from Finder does not get the shell's PATH: find docker anyway
+    gwm_engine::docker::extend_path();
     if let Some(new) = gwm_core::paths::migrate_home()? {
         eprintln!(
             "Moved your data from ~/.ntg to {} (the app is now called Genomics Workflow Microbials).",

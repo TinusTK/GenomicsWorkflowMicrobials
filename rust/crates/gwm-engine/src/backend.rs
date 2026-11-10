@@ -91,6 +91,15 @@ impl Default for Docker {
     }
 }
 
+impl Docker {
+    /// The docker command, aimed at the Docker that answered (`docker::probe`).
+    fn cmd(&self) -> Command {
+        let mut cmd = Command::new(&self.program);
+        crate::docker::apply(&mut cmd);
+        cmd
+    }
+}
+
 impl Backend for Docker {
     fn name(&self) -> &str {
         "docker"
@@ -98,12 +107,13 @@ impl Backend for Docker {
 
     fn run(&self, t: &TaskRun, kill: &AtomicBool) -> Result<i32> {
         // a container left over from an interrupted run of this same task
-        let _ = Command::new(&self.program)
+        let _ = self
+            .cmd()
             .args(["rm", "-f", &t.name])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
-        let mut cmd = Command::new(&self.program);
+        let mut cmd = self.cmd();
         cmd.args(["run", "-i", "--rm", "--name", &t.name, "-u", &user()]);
         // same as Nextflow: CPU shares (not a hard cap), a hard memory limit
         cmd.args([
@@ -133,7 +143,8 @@ impl Backend for Docker {
             .spawn()
             .context("starting docker")?;
         wait(child, kill, || {
-            let _ = Command::new(&self.program)
+            let _ = self
+                .cmd()
                 .args(["kill", &t.name])
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
@@ -142,10 +153,16 @@ impl Backend for Docker {
     }
 
     fn image_digest(&self, image: &str) -> Option<String> {
-        output(
-            &self.program,
-            &["image", "inspect", "--format", "{{index .RepoDigests 0}}", image],
-        )
+        let out = self
+            .cmd()
+            .args(["image", "inspect", "--format", "{{index .RepoDigests 0}}", image])
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+            .filter(|s| !s.is_empty())
     }
 }
 
@@ -215,7 +232,8 @@ impl Backend for Local {
 
 /// Docker when it is there, else Apptainer (same rule as v1).
 pub fn detect() -> Box<dyn Backend> {
-    if output("docker", &["--version"]).is_some() {
+    // the look also finds the socket to use when Docker's default does not answer
+    if crate::docker::probe().installed {
         Box::new(Docker::default())
     } else if output("apptainer", &["--version"]).is_some() {
         Box::new(Apptainer::default())

@@ -1,7 +1,10 @@
 <script lang="ts">
+  import Button from './ui/Button.svelte';
   import Icon from './ui/Icon.svelte';
+  import { colimaSize, invoke, isDesktop } from './desktop';
   import { live } from './live.svelte';
   import { href, route } from './router.svelte';
+  import { errorText, toasts } from './toast.svelte';
 
   const items = [
     { page: 'home', label: 'Home', icon: 'home' },
@@ -19,10 +22,65 @@
     if (!live.hardware) return 'Checking this computer…';
     if (engineOk) return '';
     const why = live.hardware.docker_error ?? '';
+    if (why.includes('not allowed')) return 'Docker is installed, but your user may not use it yet. Log out and in again; if it stays, open Settings.';
     if (why.includes('not running')) return 'Docker is installed but has not started yet. It can take a minute after the computer starts; if it stays, open Settings.';
     if (why.includes('not installed')) return live.hardware.wsl ? 'Docker is not installed yet. Open Settings and press Set up Docker.' : 'Docker is not installed yet. Open Settings to see how.';
     return why || 'No container engine was found. Open Settings.';
   });
+
+  // ---------------------------------------------------------------- start and stop the services
+  // What the tools run in, and what takes the memory: Docker (on a Mac with
+  // Colima's Linux machine, on Windows with the Linux side, WSL). It does not
+  // start by itself with the app on Mac and Linux, so Start is here; Stop
+  // gives the memory back. Both are greyed out when they can't do anything.
+  const dockerOn = $derived(!!live.hardware?.docker);
+  const dockerWhy = $derived(live.hardware?.docker_error ?? '');
+  const canStart = $derived(live.online && !dockerOn && dockerWhy.includes('not running'));
+  const canStop = $derived(live.online && dockerOn && live.running === 0);
+  const startHint = $derived(
+    dockerOn ? 'Already started' : dockerWhy.includes('not installed') ? 'Docker is not installed yet: see Settings' : canStart ? 'Start Docker, where the tools run' : 'Nothing to start',
+  );
+  const stopHint = $derived(
+    !dockerOn
+      ? dockerWhy.includes('not installed')
+        ? 'Docker is not installed yet: see Settings'
+        : 'Not started'
+      : live.running > 0
+        ? 'A run is going: stop it first, or wait until it has finished'
+        : live.hardware?.wsl
+          ? 'Switch off Docker and the Linux side of Windows, so they take no memory'
+          : 'Stop Docker, so it takes no memory',
+  );
+  let busy = $state<'' | 'start' | 'stop'>('');
+  const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  /** Keep looking until Docker is in the state asked for (it can take a minute to start). */
+  async function settle(on: boolean) {
+    for (let i = 0; i < 30; i++) {
+      await live.refreshUsage();
+      if (!live.online) return;
+      await live.refreshHardware();
+      if (!!live.hardware?.docker === on) return;
+      await pause(2000);
+    }
+  }
+  let checking = $state(false);
+  async function checkAgain() {
+    checking = true;
+    await live.refreshUsage();
+    await live.refreshHardware();
+    checking = false;
+  }
+  async function services(what: 'start' | 'stop') {
+    busy = what;
+    try {
+      await invoke(what === 'start' ? 'services_start' : 'services_stop', what === 'start' ? colimaSize(live.hardware) : undefined);
+      await settle(what === 'start');
+    } catch (e) {
+      toasts.show(errorText(e), 'error', undefined, 12000);
+    } finally {
+      busy = '';
+    }
+  }
 </script>
 
 <nav
@@ -71,6 +129,19 @@
 
   <!-- right under the menu, and the menu stays put while a page scrolls, so this is always in view -->
   <div class="mt-3 flex flex-col gap-1.5 border-t border-line px-2 pt-3.5 text-xs text-muted max-[720px]:hidden">
+    {#if isDesktop()}
+      <div class="flex gap-2">
+        <span class="flex flex-1" title={startHint}>
+          <Button size="sm" icon="play" class="flex-1" disabled={!canStart || busy !== ''} busy={busy === 'start'} onclick={() => services('start')}>Start</Button>
+        </span>
+        <span class="flex flex-1" title={stopHint}>
+          <Button size="sm" icon="stop" class="flex-1" disabled={!canStop || busy !== ''} busy={busy === 'stop'} onclick={() => services('stop')}>Stop</Button>
+        </span>
+      </div>
+    {/if}
+    <span class="mb-1.5 flex" title="Look again at whether Docker is ready">
+      <Button size="sm" icon="refresh" class="flex-1" busy={checking} disabled={busy !== ''} onclick={checkAgain}>Check again</Button>
+    </span>
     <span class="flex items-center gap-2">
       <span class="h-2 w-2 rounded-full {live.online ? (engineOk ? 'bg-ok' : 'bg-warn') : 'bg-danger'}"></span>
       {#if !live.online}

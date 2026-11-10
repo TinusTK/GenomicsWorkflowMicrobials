@@ -44,13 +44,15 @@ fn is_wsl() -> bool {
 pub fn check(cat: &Catalog) -> Value {
     let mut sys = System::new();
     sys.refresh_memory();
-    let docker = run("docker", &["info", "--format", "{{.ServerVersion}}"]);
-    let docker_error = if docker.is_some() {
+    let found = gwm_engine::docker::probe();
+    let docker_error = if found.version.is_some() {
         None
-    } else if run("docker", &["--version"]).is_some() {
-        Some("Docker is installed but not running".to_string())
+    } else if !found.installed {
+        Some("Docker is not installed")
+    } else if found.denied() {
+        Some("Docker is installed but this user is not allowed to use it yet")
     } else {
-        Some("Docker is not installed".to_string())
+        Some("Docker is installed but not running")
     };
     json!({
         "cpus": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
@@ -58,8 +60,12 @@ pub fn check(cat: &Catalog) -> Value {
         "memory_available_gb": gb(sys.available_memory()),
         "wsl": is_wsl(),
         "os": System::long_os_version(),
-        "docker": docker,
+        // "macos", "linux" (also inside WSL)
+        "platform": std::env::consts::OS,
+        "docker": found.version,
         "docker_error": docker_error,
+        // Docker's own words, for the Details in Settings
+        "docker_detail": found.detail,
         "apptainer": run("apptainer", &["--version"]),
         "disk_free_gb": {
             "work": disk(&cat.home.join("work")).0,

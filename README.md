@@ -42,14 +42,31 @@ screen and its **Settings** page say what is missing.
 - **Windows:** the Linux side of Windows (WSL) with Ubuntu, and Docker inside
   it. The app has buttons for both: **Install WSL** (asks for administrator
   rights and a restart) and **Set up Docker**. Docker Desktop is not needed.
-- **Mac:** [Colima](https://github.com/abiosoft/colima)
-  (`brew install colima docker`, then `colima start`). The app has not been
-  tried on a Mac yet: please [report](#help-and-reporting-problems) what you find.
-- **Linux:** Docker Engine (`sudo apt install docker.io`) or Apptainer.
+- **Mac:** Docker through [Colima](https://github.com/abiosoft/colima) (free).
+  **Set up Docker** in Settings opens a Terminal window that installs it with
+  Homebrew (and Homebrew itself when it is missing), starts it with all of
+  the Mac's memory but 4 GB (kept for the Mac itself) and sets it to start when you log in. Docker Desktop and
+  Rancher Desktop work too.
+- **Linux:** Docker Engine or Apptainer. On Ubuntu and Debian, **Set up
+  Docker** in Settings installs Docker Engine in a terminal window; log out
+  and in again afterwards.
 
-About 10 GB of disk for the reference databases, plus room for runs. 16 GB of
-memory or more is best; the app warns before a run about steps that need more
-than the computer has.
+Settings also shows the same steps as lines to copy, for doing it by hand.
+
+**Start and Stop** in the side panel switch Docker on and off (on a Mac with
+Colima's Linux machine, on Windows with the Linux side, WSL), so it takes
+memory only while you use it. On Mac and Linux Docker does not start with the
+app: press Start. Stop is refused while a run is going. On Windows, **Quit**
+in the tray icon's menu switches the Linux side off as well, unless a run is
+still going.
+
+About 10 GB of disk for the reference databases, plus room for runs.
+
+**Memory:** the computer needs at least 16 GB, on Windows, Mac and Linux
+(on Windows the tools get half of it by default; Settings says how to give
+them more). With 16 GB some
+tools may still not work, so more than 16 GB is best. The app warns before a
+run about steps that need more than the computer has.
 
 ### Opening and closing
 

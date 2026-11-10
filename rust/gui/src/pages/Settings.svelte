@@ -3,13 +3,69 @@
   import RemoveEverything from '../lib/RemoveEverything.svelte';
   import Button from '../lib/ui/Button.svelte';
   import Icon from '../lib/ui/Icon.svelte';
-  import { backendStatus, invoke, isDesktop, openFolder, openLink } from '../lib/desktop';
+  import { backendStatus, colimaSize, invoke, isDesktop, openFolder, openLink } from '../lib/desktop';
   import { errorText, toasts } from '../lib/toast.svelte';
   import { live } from '../lib/live.svelte';
 
   live.refreshHardware();
   const hw = $derived(live.hardware);
   const engine = $derived(hw?.docker ? `Docker ${hw.docker}${hw.wsl ? ' (inside WSL)' : ''}` : hw?.apptainer ? hw.apptainer : null);
+
+  // ---------------------------------------------------------------- setting up Docker (Mac, Linux)
+  const mac = $derived(hw?.platform === 'macos');
+  /** What went wrong, from the engine's one-line reason. */
+  const trouble = $derived.by(() => {
+    const why = hw?.docker_error ?? '';
+    return why.includes('not allowed') ? 'denied' : why.includes('not running') ? 'stopped' : 'missing';
+  });
+  const colima = $derived(colimaSize(hw));
+  const colimaStart = $derived(`colima start --cpu ${colima.cpus} --memory ${colima.memory}`);
+  /** What to do, and the lines to paste into a terminal to do it by hand. */
+  const setup = $derived.by(() => {
+    if (mac) {
+      if (trouble === 'stopped')
+        return {
+          text: 'Docker is there but has not been started. With Colima: open Terminal (in Applications › Utilities), paste this line and press Return. With Docker Desktop: open Docker Desktop. Then press Check again.',
+          lines: [colimaStart],
+          button: false,
+        };
+      return {
+        text: isDesktop()
+          ? 'The tools run in Docker, which on a Mac comes with Colima (free). Press Set up Docker: a Terminal window installs it and shows the progress (a few minutes; it may ask for your Mac password), then press Check again.'
+          : 'The tools run in Docker, which on a Mac comes with Colima (free). Open Terminal (in Applications › Utilities), paste these lines and press Return, then press Check again.',
+        lines: ['brew install colima docker', colimaStart, 'brew services start colima'],
+        button: true,
+        notes: [
+          'The first line needs Homebrew (brew.sh). The button installs it for you when it is missing.',
+          'The last line starts Colima whenever you log in. If it says "Permission denied", type sudo chown "$USER":staff ~/Library/LaunchAgents and try it again.',
+        ],
+      };
+    }
+    if (trouble === 'denied')
+      return {
+        text: 'Docker is running, but your user may not use it yet. Log out and in again (or restart the computer). If it stays, open a terminal, paste this line, then log out and in.',
+        lines: ['sudo usermod -aG docker $USER'],
+        button: false,
+      };
+    if (trouble === 'stopped')
+      return { text: 'Docker is installed but has not been started. Open a terminal, paste this line, then press Check again.', lines: ['sudo systemctl enable --now docker'], button: false };
+    return {
+      text: isDesktop()
+        ? 'The tools run in Docker. Press Set up Docker: a terminal window installs it and shows the progress (Ubuntu and Debian; it asks for your password). Then log out and in again and press Check again.'
+        : 'The tools run in Docker. Open a terminal and paste these lines (Ubuntu and Debian), then log out and in again and press Check again.',
+      lines: ['sudo apt-get install -y docker.io', 'sudo systemctl enable --now docker', 'sudo usermod -aG docker $USER'],
+      button: true,
+      notes: ['On another Linux, install Docker Engine the way docs.docker.com/engine/install says for it. Apptainer works too.'],
+    };
+  });
+  async function copyLines(lines: string[]) {
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      toasts.show('Copied: paste it into the terminal.', 'info');
+    } catch {
+      toasts.show('Could not copy: select the lines and copy them yourself.', 'error');
+    }
+  }
 
   // the Linux distribution the desktop app uses (for \\wsl.localhost paths)
   let distro = $state('Ubuntu-24.04');
@@ -98,11 +154,46 @@ Containers: ${engine ?? 'none found'}
               <div><Button variant="primary" icon="download" onclick={() => invoke('setup_docker').catch((e) => toasts.show(String(e), 'error'))}>Set up Docker</Button></div>
             {/if}
           {:else}
-            Install Docker Engine (Linux), or Colima (Mac), then press Check again.
+            <span>{setup.text}</span>
+            {#if setup.button && isDesktop()}
+              <div>
+                <Button variant="primary" icon="download" onclick={() => invoke('setup_docker', { cpus: colima.cpus, memory: colima.memory }).catch((e) => toasts.show(String(e), 'error'))}>Set up Docker</Button>
+              </div>
+              <span>Or do it by hand: open {mac ? 'Terminal (in Applications › Utilities)' : 'a terminal'}, paste these lines and press {mac ? 'Return' : 'Enter'}.</span>
+            {/if}
+            <div class="flex flex-wrap items-start gap-3">
+              <pre class="m-0 min-w-0 flex-1 overflow-x-auto rounded-lg bg-surface px-3 py-2 font-mono text-[12.5px] leading-relaxed text-ink select-text">{setup.lines.join('\n')}</pre>
+              <Button onclick={() => copyLines(setup.lines)}>Copy</Button>
+            </div>
+            {#each setup.notes ?? [] as note (note)}
+              <span>{note}</span>
+            {/each}
           {/if}
         </div>
+        {#if hw.docker_detail}
+          <details class="text-[13px] text-ink-2">
+            <summary class="cursor-pointer select-none">Details</summary>
+            <pre class="m-0 mt-2 overflow-x-auto rounded-lg bg-surface-2 px-3 py-2 font-mono text-[12px] leading-relaxed whitespace-pre-wrap select-text">{hw.docker_detail}</pre>
+          </details>
+        {/if}
       {/if}
     </section>
+
+    {#if Math.round(hw.memory_gb) < 16}
+      <section class="card flex gap-3 p-5 text-[13px] leading-relaxed text-ink-2">
+        <span class="text-warn"><Icon name="alert" /></span>
+        <span>
+          {hw.wsl ? "The Linux side of Windows (WSL), where the tools run, has" : "This computer has"} {Math.round(hw.memory_gb)} GB of memory. The app needs at least 16 GB: with less, some tools may not work
+          (steps such as the assembly can run out of memory and fail). More than 16 GB is best.
+          {#if mac}On a Mac the tools run in a small Linux machine (Colima) that gets only part of the Mac's memory.{/if}
+        </span>
+      </section>
+    {:else if Math.round(hw.memory_gb) === 16}
+      <section class="card flex gap-3 p-5 text-[13px] leading-relaxed text-ink-2">
+        <span class="text-info"><Icon name="info" /></span>
+        <span>{hw.wsl ? "The Linux side of Windows (WSL), where the tools run, has" : "This computer has"} 16 GB of memory, the least the app needs. Some tools may still not work with it: more than 16 GB is best.</span>
+      </section>
+    {/if}
 
     <section class="card grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-3 p-5 text-sm">
       <div><span class="label-caps block">CPU threads</span><span class="text-xl font-bold">{hw.cpus}</span></div>

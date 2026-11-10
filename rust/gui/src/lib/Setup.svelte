@@ -35,15 +35,42 @@
     await live.refreshHardware();
     busy = false;
   }
+  /** After Stop in the side panel (or Quit): switch the Linux side and Docker on again. */
+  async function start() {
+    busy = true;
+    try {
+      await invoke('services_start');
+    } catch (e) {
+      toasts.show(errorText(e), 'error', undefined, 12000);
+    }
+    await refresh();
+    await live.refreshUsage();
+    await live.refreshHardware();
+    busy = false;
+  }
 </script>
 
 <div class="fixed inset-0 z-40 flex items-center justify-center bg-ground/95 p-6">
   <section class="card flex w-[min(620px,100%)] flex-col gap-5 rounded-2xl p-8 shadow-xl">
     <div class="flex items-center gap-3">
       <img src="./icon.svg" alt="" width="40" height="40" />
-      <h1 class="m-0 font-display text-2xl font-semibold">Getting ready</h1>
+      <h1 class="m-0 font-display text-2xl font-semibold">{status?.problem === 'stopped' && !busy ? 'Stopped' : 'Getting ready'}</h1>
     </div>
-    {#if !status || (!status.problem && !status.running)}
+    {#if status?.problem === 'stopped'}
+      <p class="m-0 text-[15px] leading-relaxed text-ink-2">
+        {#if busy}
+          <span class="flex items-center gap-3">
+            <span class="inline-block h-5 w-5 animate-spin rounded-full border-2 border-brand border-t-transparent"></span>
+            Starting the Linux side of Windows (WSL) and Docker. This takes a few seconds.
+          </span>
+        {:else}
+          The Linux side of Windows (WSL) and Docker are switched off, so they take no memory. Press Start to use the app again.
+        {/if}
+      </p>
+      <div class="flex flex-wrap gap-2.5">
+        <Button variant="primary" size="lg" icon="play" {busy} onclick={start}>Start</Button>
+      </div>
+    {:else if !status || (!status.problem && !status.running)}
       <p class="m-0 flex items-center gap-3 text-[15px] text-ink-2">
         <span class="inline-block h-5 w-5 animate-spin rounded-full border-2 border-brand border-t-transparent"></span>
         Starting the engine{status?.windows ? ' on the Linux side of Windows (WSL)' : ''}. This takes a few seconds the first time.

@@ -81,7 +81,19 @@ fn to_wsl(p: &Path) -> String {
 
 #[cfg(windows)]
 fn wsl_distros() -> Option<Vec<String>> {
-    let out = Command::new("wsl.exe").args(["-l", "-q"]).creation_flags(NO_WINDOW).output().ok()?;
+    wsl_list(&["-l", "-q"])
+}
+
+/// The app's Linux is switched on (it takes memory until it is switched off).
+#[cfg(windows)]
+fn distro_running() -> bool {
+    let d = distro();
+    wsl_list(&["-l", "-q", "--running"]).is_some_and(|l| l.iter().any(|x| x.eq_ignore_ascii_case(&d)))
+}
+
+#[cfg(windows)]
+fn wsl_list(args: &[&str]) -> Option<Vec<String>> {
+    let out = Command::new("wsl.exe").args(args).creation_flags(NO_WINDOW).output().ok()?;
     if !out.status.success() {
         return None;
     }
@@ -234,9 +246,24 @@ fn setup_wsl() -> Result<(), String> {
     Err("only needed on Windows".into())
 }
 
-/// Install and start Docker Engine inside WSL, in a window that shows the progress.
+/// The script for Settings > Set up Docker, written where a terminal can run it.
+#[cfg(not(windows))]
+fn setup_script(name: &str, text: &str) -> Result<PathBuf, String> {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join("genomics-workflow-microbials");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(name);
+    std::fs::write(&path, text.replace("\r\n", "\n")).map_err(|e| e.to_string())?;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+/// Install and start Docker in a window that shows the progress: Docker Engine
+/// inside WSL (Windows) or straight on Ubuntu and Debian (Linux), Colima with
+/// Homebrew (Mac; `cpus` and `memory` GB are what Colima gets).
 #[tauri::command]
-fn setup_docker() -> Result<(), String> {
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+fn setup_docker(cpus: Option<u32>, memory: Option<u32>) -> Result<(), String> {
     #[cfg(windows)]
     {
         let script = "set -e; apt-get update; DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io procps; \
@@ -249,8 +276,260 @@ fn setup_docker() -> Result<(), String> {
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
+    #[cfg(target_os = "macos")]
+    {
+        let text = include_str!("setup-docker-mac.sh")
+            .replace("@CPUS@", &cpus.unwrap_or(2).clamp(1, 256).to_string())
+            .replace("@MEMORY@", &memory.unwrap_or(4).clamp(2, 1024).to_string());
+        // Terminal opens a .command file and runs it
+        let path = setup_script("Set up Docker.command", &text)?;
+        Command::new("open").arg(&path).spawn().map(|_| ()).map_err(|e| format!("Terminal could not be opened: {e}"))
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let path = setup_script("set-up-docker.sh", include_str!("setup-docker-linux.sh"))?;
+        // the terminal programs of the usual desktops, and how each takes a command
+        let terminals: [(&str, &[&str]); 5] = [
+            ("gnome-terminal", &["--", "bash"]),
+            ("konsole", &["-e", "bash"]),
+            ("xfce4-terminal", &["-x", "bash"]),
+            ("x-terminal-emulator", &["-e", "bash"]),
+            ("xterm", &["-e", "bash"]),
+        ];
+        for (program, args) in terminals {
+            if Command::new(program).args(args).arg(&path).spawn().is_ok() {
+                return Ok(());
+            }
+        }
+        Err("No terminal program was found to show the progress in. Use the steps shown under the button.".into())
+    }
+}
+
+// ---------------------------------------------------------------- start and stop the services
+//
+// "The services" are what the tools run in and what takes the memory: on
+// Windows the app's Linux (WSL) with the engine and Docker inside it, on a Mac
+// Colima (or Docker Desktop), on Linux Docker Engine. The side panel has a
+// Start and a Stop button for them; on Windows, Quit stops them too.
+
+/// A Mac app opened from Finder gets a bare PATH: add the folders Homebrew,
+/// Docker Desktop, Colima, Rancher Desktop and MacPorts install into, so the
+/// app (and the engine it starts) finds `colima` and `docker`. Same list as
+/// the engine's own (`gwm-engine/src/docker.rs`).
+#[cfg(not(windows))]
+fn extend_path() {
+    let home = dirs::home_dir().unwrap_or_default();
+    let extra = [
+        PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/usr/local/bin"),
+        home.join(".docker/bin"),
+        PathBuf::from("/Applications/Docker.app/Contents/Resources/bin"),
+        home.join(".colima/bin"),
+        home.join(".rd/bin"),
+        PathBuf::from("/opt/local/bin"),
+    ];
+    let mut paths: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+    for p in extra {
+        if p.is_dir() && !paths.contains(&p) {
+            paths.push(p);
+        }
+    }
+    if let Ok(joined) = std::env::join_paths(paths) {
+        std::env::set_var("PATH", joined);
+    }
+}
+
+/// Runs that are going or waiting, as the engine says; nothing when it does not answer.
+fn engine_runs() -> Option<usize> {
+    use std::io::{Read, Write};
+    let addr = SocketAddr::from(([127, 0, 0, 1], PORT));
+    let mut s = TcpStream::connect_timeout(&addr, Duration::from_millis(500)).ok()?;
+    s.set_read_timeout(Some(Duration::from_secs(10))).ok()?;
+    s.write_all(b"GET /api/runs HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").ok()?;
+    let mut buf = Vec::new();
+    s.read_to_end(&mut buf).ok()?;
+    let text = String::from_utf8_lossy(&buf);
+    let body = text.split_once("\r\n\r\n")?.1;
+    let list: serde_json::Value = serde_json::from_str(body.trim()).ok()?;
+    Some(list.as_array()?.iter().filter(|r| matches!(r["status"].as_str(), Some("running" | "queued"))).count())
+}
+
+/// A run is going: the services must stay on for it. With the engine not
+/// answering, the run processes themselves are looked for (each is its own
+/// `gwm exec`), so a run is never cut off by mistake.
+fn run_going() -> bool {
+    if let Some(n) = engine_runs() {
+        return n > 0;
+    }
+    const RUN: &str = "gwm[^ ]* exec ";
+    #[cfg(windows)]
+    {
+        distro_running()
+            && Command::new("wsl.exe")
+                .args(["-d", &distro(), "--", "pgrep", "-f", RUN])
+                .creation_flags(NO_WINDOW)
+                .output()
+                .is_ok_and(|o| o.status.success())
+    }
     #[cfg(not(windows))]
-    Err("Install Docker Engine (Linux) or Colima (Mac), then press Check again.".into())
+    {
+        Command::new("pgrep").args(["-f", RUN]).output().is_ok_and(|o| o.status.success())
+    }
+}
+
+/// The last lines a command wrote, for an error message.
+#[cfg_attr(windows, allow(dead_code))]
+fn last_words(out: &std::process::Output) -> String {
+    let text = format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    lines[lines.len().saturating_sub(3)..].join(" ")
+}
+
+#[cfg(target_os = "macos")]
+fn has_colima() -> bool {
+    Command::new("colima").arg("version").output().is_ok_and(|o| o.status.success())
+}
+
+#[cfg(target_os = "macos")]
+const DOCKER_DESKTOP: &str = "/Applications/Docker.app";
+
+/// Switch the app's Linux off (Windows): the engine and Docker go with it and
+/// Windows gets the memory back.
+#[cfg(windows)]
+fn stop_wsl(app: &tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<Backend>();
+    *state.problem.lock().unwrap() = Some("stopped".into());
+    shutdown();
+    if let Some(mut child) = state.child.lock().unwrap().take() {
+        let _ = child.kill();
+    }
+    let out = Command::new("wsl.exe")
+        .args(["--terminate", &distro()])
+        .creation_flags(NO_WINDOW)
+        .output()
+        .map_err(|e| format!("Could not reach WSL: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("{} could not be switched off.", distro()));
+    }
+    // With the Linux off, WSL's own machine (VmmemWSL in Task Manager) can stay
+    // on and keep its memory: switch it off too, unless another Linux of the
+    // user's is running in it.
+    let installed = wsl_distros().unwrap_or_default();
+    let others = wsl_list(&["-l", "-q", "--running"])
+        .unwrap_or_default()
+        .iter()
+        .any(|l| installed.iter().any(|d| d.eq_ignore_ascii_case(l)));
+    if !others {
+        let _ = Command::new("wsl.exe").arg("--shutdown").creation_flags(NO_WINDOW).status();
+    }
+    Ok(())
+}
+
+fn stop_services(app: &tauri::AppHandle) -> Result<(), String> {
+    if run_going() {
+        return Err("A run is still going. Stop it on the Runs page, or wait until it has finished.".into());
+    }
+    #[cfg(windows)]
+    {
+        stop_wsl(app)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app;
+        if has_colima() && Command::new("colima").arg("status").output().is_ok_and(|o| o.status.success()) {
+            let out = Command::new("colima").arg("stop").output().map_err(|e| e.to_string())?;
+            return if out.status.success() { Ok(()) } else { Err(format!("Colima could not be stopped: {}", last_words(&out))) };
+        }
+        if Path::new(DOCKER_DESKTOP).exists() {
+            let out = Command::new("osascript").args(["-e", "quit app \"Docker\""]).output().map_err(|e| e.to_string())?;
+            return if out.status.success() { Ok(()) } else { Err(format!("Docker Desktop could not be closed: {}", last_words(&out))) };
+        }
+        Err("Docker is not started by Colima or Docker Desktop here, so the app cannot stop it.".into())
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let _ = app;
+        // the system asks for the password in its own window
+        let out = Command::new("systemctl").args(["stop", "docker.socket", "docker.service"]).output().map_err(|e| e.to_string())?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(format!("Docker could not be stopped: {} In a terminal: sudo systemctl stop docker.socket docker.service", last_words(&out)))
+        }
+    }
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+fn start_services(app: &tauri::AppHandle, cpus: Option<u32>, memory: Option<u32>) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        if !answering() {
+            ensure(app);
+        }
+        let state = app.state::<Backend>();
+        if let Some(problem) = state.problem.lock().unwrap().clone() {
+            return Err(match problem.as_str() {
+                "wsl" => "WSL is not installed yet.".into(),
+                "distro" => format!("{} is not installed yet.", distro()),
+                _ => problem,
+            });
+        }
+        let out = Command::new("wsl.exe")
+            .args(["-d", &distro(), "-u", "root", "--", "sh", "-c", "command -v docker >/dev/null 2>&1 || exit 7; systemctl start docker 2>/dev/null || service docker start"])
+            .creation_flags(NO_WINDOW)
+            .output()
+            .map_err(|e| format!("Could not reach WSL: {e}"))?;
+        match out.status.code() {
+            Some(0) => Ok(()),
+            Some(7) => Err("Docker is not installed yet. Open Settings and press Set up Docker.".into()),
+            _ => Err("Docker could not be started inside WSL. Open Settings and press Check again.".into()),
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app;
+        if has_colima() {
+            let mut cmd = Command::new("colima");
+            cmd.arg("start");
+            // every start sets the machine's size: all the Mac's memory but 4 GB,
+            // also for a machine made earlier with less
+            if let (Some(c), Some(m)) = (cpus, memory) {
+                cmd.args(["--cpu", &c.clamp(1, 256).to_string()]);
+                cmd.args(["--memory", &m.clamp(2, 1024).to_string()]);
+            }
+            let out = cmd.output().map_err(|e| e.to_string())?;
+            return if out.status.success() { Ok(()) } else { Err(format!("Colima could not start: {}", last_words(&out))) };
+        }
+        if Path::new(DOCKER_DESKTOP).exists() {
+            // it takes a minute to be ready; the app keeps looking
+            return Command::new("open").args(["-a", "Docker"]).spawn().map(|_| ()).map_err(|e| format!("Docker Desktop could not be opened: {e}"));
+        }
+        Err("Docker is not installed yet. Open Settings and press Set up Docker.".into())
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let _ = app;
+        // the system asks for the password in its own window
+        let out = Command::new("systemctl").args(["start", "docker"]).output().map_err(|e| e.to_string())?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(format!("Docker could not be started: {} In a terminal: sudo systemctl start docker", last_words(&out)))
+        }
+    }
+}
+
+/// Side panel > Start: switch on what the tools run in (`cpus` and `memory`
+/// GB size Colima on its very first start).
+#[tauri::command]
+async fn services_start(app: tauri::AppHandle, cpus: Option<u32>, memory: Option<u32>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || start_services(&app, cpus, memory)).await.map_err(|e| e.to_string())?
+}
+
+/// Side panel > Stop: switch it off, so it takes no memory. Refused while a run is going.
+#[tauri::command]
+async fn services_stop(app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || stop_services(&app)).await.map_err(|e| e.to_string())?
 }
 
 /// Open a web page or a new email in the system's browser or mail program.
@@ -543,6 +822,8 @@ fn tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 }
 
 fn main() {
+    #[cfg(not(windows))]
+    extend_path();
     let app = tauri::Builder::default()
         // started a second time: show the window that is already there
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_window(app)))
@@ -557,6 +838,8 @@ fn main() {
             save_text_file,
             setup_wsl,
             setup_docker,
+            services_start,
+            services_stop,
             update_install,
             update_progress,
             extras_overview,
@@ -587,6 +870,17 @@ fn main() {
         .expect("starting Genomics Workflow Microbials");
     app.run(|app, event| {
         if let RunEvent::Exit = event {
+            // Windows: quitting also switches the app's Linux off, so it stops taking
+            // memory. Not while a run is going (runs outlive the app), not when an
+            // update is about to open the app again, not when it is off already.
+            #[cfg(windows)]
+            {
+                let state = app.state::<Backend>();
+                if !state.updating.load(Ordering::Relaxed) && distro_running() && !run_going() {
+                    let _ = stop_wsl(app);
+                    return;
+                }
+            }
             // the window's own engine stops with it; runs carry on in their own processes
             shutdown();
             if let Some(mut child) = app.state::<Backend>().child.lock().unwrap().take() {

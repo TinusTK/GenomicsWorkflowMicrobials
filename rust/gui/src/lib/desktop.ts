@@ -18,6 +18,18 @@ export async function invoke<T = unknown>(cmd: string, args?: Record<string, unk
   return (await i(cmd, args)) as T;
 }
 
+/**
+ * What Colima's Linux machine gets on a Mac: half the threads, and all the
+ * memory but 4 GB, which stay for the Mac itself (Colima's own default, 2 CPUs
+ * and 2 GB, is too little).
+ */
+export function colimaSize(hw: { cpus: number; memory_gb: number } | null) {
+  return {
+    cpus: Math.max(2, Math.floor((hw?.cpus ?? 4) / 2)),
+    memory: Math.max(2, Math.round(hw?.memory_gb ?? 8) - 4),
+  };
+}
+
 export interface BackendStatus {
   running: boolean;
   /** "wsl", "distro" (setup needed) or a message */

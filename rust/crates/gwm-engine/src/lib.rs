@@ -4,6 +4,7 @@
 
 pub mod backend;
 pub mod diagnose;
+pub mod docker;
 pub mod executor;
 pub mod provenance;
 pub mod reports;
