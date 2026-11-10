@@ -121,7 +121,7 @@ fn folder_name(cat: &Catalog, when: &chrono::DateTime<Local>, name: &str) -> Str
         .to_string();
     let mut id = base.clone();
     let mut n = 2;
-    while cat.runs.join(&id).exists() || cat.home.join("work").join(&id).exists() {
+    while cat.runs.join(&id).exists() || cat.home.join("work").join(work_name(&id)).exists() {
         id = format!("{base} ({n})");
         n += 1;
     }
@@ -201,7 +201,7 @@ pub fn prepare(
     fs::write(details.join("samples.csv"), csv)?;
     fs::write(rdir.join("README.txt"), readme(&name, &wf.name, found.samples.len()))?;
 
-    let work = cat.home.join("work").join(&run_id);
+    let work = cat.home.join("work").join(work_name(&run_id));
     let results = rdir.join(RESULTS);
     let limits = Limits::detect(opts.max_cpus, opts.max_memory_gb);
     let command = format!("gwm run {} {}", wf.id, input_dir.display());
@@ -572,4 +572,19 @@ pub fn result_file(cat: &Catalog, run_id: &str, rel: &str) -> Result<PathBuf> {
         bail!("no file {rel}");
     }
     Ok(real)
+}
+
+/// The working folder's name: the run's name with only letters, digits, `.`,
+/// `_` and `-` (some tools, e.g. BLAST inside SISTR, break on spaces in paths).
+pub fn work_name(run_id: &str) -> String {
+    run_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || "._-".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }

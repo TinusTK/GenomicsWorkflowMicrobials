@@ -14,7 +14,7 @@
     const out: { icon: string; tone: string; title: string; text: string; action: string; to: string }[] = [];
     const hw = live.hardware;
     if (hw && !hw.docker && !hw.apptainer)
-      out.push({ icon: 'alert', tone: 'bg-danger-soft text-danger', title: 'The tools can\'t start yet', text: hw.docker_error ?? 'No container engine found.', action: 'Set up', to: 'computer' });
+      out.push({ icon: 'alert', tone: 'bg-danger-soft text-danger', title: 'The tools can\'t start yet', text: hw.docker_error ?? 'No container engine found.', action: 'Set up', to: 'settings' });
     for (const d of live.missingDb)
       out.push({ icon: 'alert', tone: 'bg-warn-soft text-warn', title: `${d.name} is not installed`, text: `Steps that need it are switched off until it is there (${d.size_gb} GB).`, action: 'Install', to: 'databases' });
     for (const r of live.runs.filter((r) => r.status === 'failed' || r.status === 'interrupted').slice(0, 2))

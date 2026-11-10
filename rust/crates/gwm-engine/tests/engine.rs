@@ -212,6 +212,11 @@ fn one_folder_per_run_and_orphan_work_cleanup() {
         assert!(folder.join(p).exists(), "{p} in the run folder");
     }
     let work = PathBuf::from(run["work"].as_str().unwrap());
+    assert!(
+        !work.to_string_lossy().contains(' '),
+        "no spaces in the working folder: {}",
+        work.display()
+    );
     assert!(work.is_dir(), "kept: cleanup off");
     assert_eq!(runs::clean_orphan_work(&cat), 0, "run folder still there");
     fs::remove_dir_all(&folder).unwrap(); // deleted by hand

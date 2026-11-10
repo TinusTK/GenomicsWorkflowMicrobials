@@ -67,6 +67,9 @@ pub fn check(cat: &Catalog) -> Value {
         },
         "app_version": env!("CARGO_PKG_VERSION"),
         "runs_folder": cat.runs,
+        "data_folder": cat.home,
+        "work_folder": cat.home.join("work"),
+        "databases_folder": paths::db_dir(&cat.home),
     })
 }
 
@@ -108,7 +111,7 @@ pub fn warnings(cat: &Catalog, wf: &Workflow, hw: &Value, n_samples: Option<usiz
         let why = hw["docker_error"].as_str().unwrap_or("no container engine");
         add(
             "error",
-            format!("The tools can't start: {why}. Open This computer to set it up."),
+            format!("The tools can't start: {why}. Open Settings to set it up."),
             None,
         );
     }
@@ -200,7 +203,7 @@ pub fn warnings(cat: &Catalog, wf: &Workflow, hw: &Value, n_samples: Option<usiz
         }
     }
     if hw["wsl"] == true && mem < 32.0 {
-        add("info", format!("The Linux side (WSL) has {mem:.0} GB RAM. Windows gives it half its memory by default; This computer shows how to raise it."), None);
+        add("info", format!("The Linux side (WSL) has {mem:.0} GB RAM. Windows gives it half its memory by default; Settings shows how to raise it."), None);
     }
     out
 }

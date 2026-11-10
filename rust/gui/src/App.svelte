@@ -1,5 +1,7 @@
 <script lang="ts">
+  import Setup from './lib/Setup.svelte';
   import Sidebar from './lib/Sidebar.svelte';
+  import { isDesktop } from './lib/desktop';
   import Icon from './lib/ui/Icon.svelte';
   import { live } from './lib/live.svelte';
   import { route } from './lib/router.svelte';
@@ -12,11 +14,15 @@
   import Builder from './pages/Builder.svelte';
   import Tools from './pages/Tools.svelte';
   import Databases from './pages/Databases.svelte';
-  import Computer from './pages/Computer.svelte';
+  import Settings from './pages/Settings.svelte';
 
   live.start();
   const r = $derived(route.current);
+  // the desktop app shows Setup until its engine answers (first start, WSL missing, ...)
+  const showSetup = $derived(isDesktop() && !live.online);
 </script>
+
+{#if showSetup}<Setup />{/if}
 
 <div class="flex min-h-screen flex-wrap bg-ground text-ink">
   <Sidebar />
@@ -35,8 +41,8 @@
       <Tools />
     {:else if r.page === 'databases'}
       <Databases />
-    {:else if r.page === 'computer'}
-      <Computer />
+    {:else if r.page === 'settings' || r.page === 'computer'}
+      <Settings />
     {:else}
       <Home />
     {/if}

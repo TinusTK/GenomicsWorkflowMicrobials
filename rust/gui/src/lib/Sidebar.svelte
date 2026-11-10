@@ -9,7 +9,7 @@
     { page: 'workflows', label: 'Workflows', icon: 'flow' },
     { page: 'tools', label: 'Tools and packs', icon: 'tool' },
     { page: 'databases', label: 'Databases', icon: 'db' },
-    { page: 'computer', label: 'This computer', icon: 'computer' },
+    { page: 'settings', label: 'Settings', icon: 'settings' },
   ];
   const active = $derived(route.current.page === 'new' ? 'runs' : route.current.page);
   const engineOk = $derived(!!(live.hardware?.docker || live.hardware?.apptainer));

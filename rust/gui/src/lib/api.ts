@@ -59,6 +59,9 @@ export interface Hardware {
   disk_free_gb: { work: number | null; databases: number | null };
   app_version: string;
   runs_folder: string;
+  data_folder: string;
+  work_folder: string;
+  databases_folder: string;
 }
 
 export interface WorkflowSummary {

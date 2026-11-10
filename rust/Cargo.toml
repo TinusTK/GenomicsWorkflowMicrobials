@@ -3,6 +3,8 @@
 [workspace]
 resolver = "2"
 members = ["crates/gwm-core", "crates/gwm-engine", "crates/gwm-server", "crates/gwm-cli"]
+# the desktop app builds on its own (it needs each system's web view)
+exclude = ["desktop"]
 
 [workspace.package]
 version = "2.0.0-dev"

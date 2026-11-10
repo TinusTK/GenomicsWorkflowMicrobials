@@ -97,6 +97,12 @@ impl Backend for Docker {
     }
 
     fn run(&self, t: &TaskRun, kill: &AtomicBool) -> Result<i32> {
+        // a container left over from an interrupted run of this same task
+        let _ = Command::new(&self.program)
+            .args(["rm", "-f", &t.name])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
         let mut cmd = Command::new(&self.program);
         cmd.args(["run", "-i", "--rm", "--name", &t.name, "-u", &user()]);
         // same as Nextflow: CPU shares (not a hard cap), a hard memory limit

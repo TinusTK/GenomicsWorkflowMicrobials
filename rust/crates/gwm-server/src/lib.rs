@@ -70,10 +70,20 @@ pub async fn serve(addr: SocketAddr, cat: Catalog, gui: Option<PathBuf>) -> anyh
         cat,
         exe: std::env::current_exe()?,
     };
+    // the desktop app stops its engine when it closes (runs carry on: they are their own processes)
+    let stop = std::sync::Arc::new(tokio::sync::Notify::new());
+    let stopper = stop.clone();
     let api = Router::new()
         .route(
             "/api/health",
             get(|| async { Json(json!({"ok": true, "version": env!("CARGO_PKG_VERSION")})) }),
+        )
+        .route(
+            "/api/shutdown",
+            post(move || async move {
+                stopper.notify_one();
+                Json(json!({"ok": true}))
+            }),
         )
         .route("/api/hardware", get(hardware_check))
         .route("/api/usage", get(usage))
@@ -102,8 +112,11 @@ pub async fn serve(addr: SocketAddr, cat: Catalog, gui: Option<PathBuf>) -> anyh
     let listener = tokio::net::TcpListener::bind(addr).await?;
     eprintln!("Genomics Workflow Microbials: http://{addr}/");
     axum::serve(listener, router)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
+        .with_graceful_shutdown(async move {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = stop.notified() => {}
+            }
         })
         .await?;
     Ok(())
@@ -332,9 +345,55 @@ struct StartReq {
     opts: StartOptions,
 }
 
+/// The app's settings a run needs (data folder, runs folder, ...), passed on to it.
+fn run_env() -> Vec<(String, String)> {
+    std::env::vars()
+        .filter(|(k, _)| k.starts_with("GWM_") || k.starts_with("NTG_") || k == "PATH" || k == "HOME")
+        .collect()
+}
+
+/// Start `gwm exec <run>` so that it outlives the app. With systemd (Linux, and
+/// WSL with systemd on), as its own service: on Windows, closing the app ends its
+/// WSL session, which would otherwise take the run with it.
 fn spawn_exec(a: &App, run_id: &str) -> anyhow::Result<()> {
     let dir = runs::run_path(&a.cat, run_id)?;
-    let log = fs::File::create(dir.join(runs::DETAILS).join("exec.log"))?;
+    let log_path = dir.join(runs::DETAILS).join("exec.log");
+    #[cfg(target_os = "linux")]
+    if Path::new("/run/systemd/system").exists() {
+        // SAFETY: getuid has no preconditions
+        let root = unsafe { libc::getuid() } == 0;
+        let mut cmd = Command::new("systemd-run");
+        if !root {
+            cmd.arg("--user");
+        }
+        let unit: String = run_id
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        // a new name each time: a resumed run never clashes with its earlier service
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        cmd.args(["--quiet", "--collect", &format!("--unit=gwm-run-{unit}-{secs}")])
+            .arg(format!("--property=StandardOutput=append:{}", log_path.display()))
+            .arg(format!("--property=StandardError=append:{}", log_path.display()))
+            .arg(format!("--working-directory={}", dir.display()));
+        for (k, v) in run_env() {
+            cmd.arg(format!("--setenv={k}={v}"));
+        }
+        cmd.arg(&a.exe)
+            .args(["exec", run_id])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        if let Ok(out) = cmd.output() {
+            if out.status.success() {
+                return Ok(());
+            }
+            eprintln!("systemd-run: {}", String::from_utf8_lossy(&out.stderr).trim());
+        }
+    }
+    let log = fs::File::create(&log_path)?;
     let mut cmd = Command::new(&a.exe);
     cmd.args(["exec", run_id])
         .stdin(Stdio::null())
@@ -343,7 +402,14 @@ fn spawn_exec(a: &App, run_id: &str) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        cmd.process_group(0); // its own group: not stopped with the app
+        // its own session: not stopped when the app (or its WSL window) closes
+        // SAFETY: setsid is async-signal-safe and touches no memory
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
     }
     cmd.spawn()?;
     Ok(())
