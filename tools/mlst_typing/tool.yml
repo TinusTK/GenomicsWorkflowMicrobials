@@ -1,0 +1,87 @@
+id: mlst_typing
+name: MLST typing
+version: 0.1.0
+category: Typing
+description: >-
+  Multilocus sequence typing of an assembly. Finds the PubMLST scheme that
+  fits best by itself (the species need not be known first), then reports the
+  sequence type (ST), the allele of every locus and how good the match is.
+  162 schemes from PubMLST and BIGSdb-Pasteur come with it, and the database
+  version is recorded with every run.
+homepage: https://github.com/TinusTK/mlst-typing
+license: GPL-2.0
+citation: "TinusTK. mlst-typing, https://github.com/TinusTK/mlst-typing (a Python redesign of mlst, Seemann T); PubMLST, Jolley et al. 2018."
+container: ghcr.io/tinustk/gwm-mlst-typing:0.1.0
+scope: per_sample
+resources: {cpus: 2, memory_gb: 2}
+requirements: {memory_gb: 1}
+
+inputs:
+  contigs: {type: fasta, description: Assembled contigs.}
+
+outputs:
+  report: {type: tsv, path: "out/{sample}.mlst_typing.tsv", description: "Sample, scheme, ST and alleles (with status and score in the detailed layout)."}
+
+settings:
+  scheme:
+    label: Scheme
+    type: string
+    default: ""
+    auto: {value: "", label: Auto-detect}
+    description: Force one MLST scheme (e.g. spyogenes, saureus, ecoli_achtman_4). Auto picks the best match.
+  full:
+    label: Detailed output
+    type: boolean
+    default: true
+    description: All alleles in one column, plus STATUS (PERFECT, NOVEL, PARTIAL ...) and SCORE columns.
+  minscore:
+    label: Minimum score to report a scheme
+    type: number
+    default: 50
+    description: Out of 100. Used when the scheme is detected automatically.
+  exclude:
+    label: Schemes to ignore
+    type: string
+    default: "ecoli,abaumannii,vcholerae_2,senterica_achtman_2"
+    description: Scheme names, comma-separated, left out of automatic detection.
+  minid:
+    label: Minimum identity (%)
+    type: number
+    default: 95
+    description: Identity of a full-length allele needed for a close ("~") call (50-100).
+  mincov:
+    label: Minimum coverage (%)
+    type: number
+    default: 50
+    description: Coverage needed for a partial ("?") call (10-100).
+
+versions:
+  mlst_typing: python /opt/mlst_typing/mlst_typing.py --db /opt/mlst_typing/database --version 2>&1 | awk '{print $2}'
+  mlst_typing_db: head -1 /opt/mlst_typing/database/VERSION.txt
+  blast: |-
+    blastn -version 2>&1 | head -1 | sed 's/^blastn: //'
+
+galaxy:
+  tool: tinustk/mlst_typing/mlst_typing
+  inputs: {input: contigs}
+  outputs: {report: report}
+  settings:
+    scheme: scheme_mode.scheme
+    minscore: scheme_mode.minscore
+    exclude: scheme_mode.exclude
+    full: full
+    minid: adv.minid
+    mincov: adv.mincov
+
+command: |
+  args=(--minid "$S_minid" --mincov "$S_mincov")
+  if [ -n "$S_scheme" ]; then
+      args+=(--scheme "$S_scheme")
+  else
+      args+=(--minscore "$S_minscore")
+      [ -n "$S_exclude" ] && args+=(--exclude "$S_exclude")
+  fi
+  [ "$S_full" = true ] && args+=(--full)
+  python /opt/mlst_typing/mlst_typing.py --db /opt/mlst_typing/database \
+      --threads "$CPUS" --label "$SAMPLE" "${args[@]}" \
+      --outfile "out/$SAMPLE.mlst_typing.tsv" "$IN_contigs"

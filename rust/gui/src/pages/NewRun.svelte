@@ -1,5 +1,5 @@
 <script lang="ts">
-  // New run in four steps: reads, workflow, check, start.
+  // New run in four steps: the input files (reads or FASTA files), workflow, check, start.
   import { untrack } from 'svelte';
   import FolderPicker from '../lib/FolderPicker.svelte';
   import PageHeader from '../lib/PageHeader.svelte';
@@ -20,6 +20,9 @@
   let picking = $state(false);
   let found = $state<Found | null>(null);
   let problems = $state<string[]>([]);
+  // what the files are: read pairs, or FASTA files (assemblies), one sample each
+  let kind = $state<'paired_reads' | 'assemblies'>('paired_reads');
+  const fasta = $derived(kind === 'assemblies');
   let custom = $state(false);
   let r1 = $state('_R1');
   let r2 = $state('_R2');
@@ -42,6 +45,9 @@
   get<WorkflowSummary[]>('/api/workflows')
     .then((w) => {
       workflows = w;
+      // started from a workflow: the files are what that workflow takes
+      const asked = w.find((x) => x.id === wfId);
+      if (asked?.input_type === 'assemblies') kind = 'assemblies';
       if (!wfId && w.length) wfId = w[0].id;
     })
     .catch((e) => toasts.show(errorText(e), 'error'));
@@ -54,10 +60,10 @@
       return;
     }
     try {
-      const res = await post<{ found: Found; problems: string[] }>('/api/reads', { input: input.trim(), pairing });
+      const res = await post<{ found: Found; problems: string[] }>('/api/reads', { input: input.trim(), pairing, input_type: kind });
       found = res.found;
       problems = res.problems;
-      if (!custom) {
+      if (!custom && !fasta) {
         r1 = res.found.r1;
         r2 = res.found.r2;
       }
@@ -68,6 +74,16 @@
   }
 
   const chosen = $derived(workflows.find((w) => w.id === wfId));
+  /** A workflow runs on the kind of files chosen in step 1. */
+  const fits = (w: WorkflowSummary) => (w.input_type === 'assemblies') === fasta;
+  function setKind(k: 'paired_reads' | 'assemblies') {
+    if (k === kind) return;
+    kind = k;
+    custom = false;
+    // a workflow for the other kind of files no longer fits
+    if (chosen && !fits(chosen)) wfId = workflows.find(fits)?.id ?? '';
+    pair();
+  }
 
   async function loadWorkflow() {
     if (!wfId) return;
@@ -110,13 +126,13 @@
   const stepsOn = $derived(view ? view.order.filter((id) => runnable[id]).length : 0);
 
   const titles = [
-    ['Reads', 'Pick the folder'],
+    ['Files', 'Pick the folder'],
     ['Workflow', 'What to run'],
     ['Check', 'Steps and space'],
     ['Start', 'Name it, go'],
   ];
   const canNext = $derived(
-    step === 1 ? !!found && found.samples.length > 0 && problems.length === 0 : step === 2 ? !!wfId : step === 3 ? blockers.length === 0 && !checking : true,
+    step === 1 ? !!found && found.samples.length > 0 && problems.length === 0 : step === 2 ? !!chosen && fits(chosen) : step === 3 ? blockers.length === 0 && !checking : true,
   );
 
   async function next() {
@@ -192,8 +208,26 @@
   <section class="card flex flex-col gap-5 rounded-2xl p-7 max-[720px]:p-4">
     {#if step === 1}
       <div>
-        <h2 class="m-0 mb-1 text-xl font-semibold">Which reads?</h2>
-        <p class="m-0 text-sm text-muted">Pick the folder with the paired FASTQ files. The app pairs R1 and R2 for you.</p>
+        <h2 class="m-0 mb-1 text-xl font-semibold">Which files?</h2>
+        <p class="m-0 text-sm text-muted">
+          {fasta
+            ? 'Pick the folder with the FASTA files (assemblies). Each file is one sample, named after the file.'
+            : 'Pick the folder with the paired FASTQ files. The app pairs R1 and R2 for you.'}
+        </p>
+      </div>
+      <div class="flex flex-wrap gap-2.5" role="radiogroup" aria-label="What the files are">
+        {#each [['paired_reads', 'Paired reads', 'FASTQ files, two per sample'], ['assemblies', 'Assembled contigs', 'FASTA files, one per sample']] as [k, title, what] (k)}
+          <button
+            role="radio"
+            aria-checked={kind === k}
+            onclick={() => setKind(k as 'paired_reads' | 'assemblies')}
+            class="flex min-w-[220px] flex-1 cursor-pointer flex-col items-start gap-0.5 rounded-xl border-2 px-4 py-3 text-left text-ink transition-colors
+              {kind === k ? 'border-brand bg-brand-softer' : 'border-line bg-surface hover:border-brand/50'}"
+          >
+            <span class="text-sm font-semibold">{title}</span>
+            <span class="text-[13px] text-muted">{what}</span>
+          </button>
+        {/each}
       </div>
       <div class="flex flex-wrap items-center gap-4 rounded-2xl border-2 border-dashed border-brand/40 bg-brand-softer p-5">
         <span class="text-brand"><Icon name="folder" size={36} stroke={1.6} /></span>
@@ -214,20 +248,26 @@
       </div>
       <label class="flex flex-col gap-1.5 text-[13px] font-semibold text-ink-2">
         Folder path
-        <input class="input" bind:value={input} onchange={pair} placeholder="C:\Lab\Reads\2026-11-10" />
+        <input class="input" bind:value={input} onchange={pair} placeholder={fasta ? 'C:\\Lab\\Assemblies' : 'C:\\Lab\\Reads\\2026-11-10'} />
       </label>
 
       {#if found}
         <div class="flex flex-wrap items-center gap-2.5">
           {#if found.samples.length && !problems.length}
             <span class="inline-flex h-7 items-center rounded-full bg-ok-soft px-3 text-[13px] font-semibold text-ok-ink">
-              {found.samples.length} sample{found.samples.length === 1 ? '' : 's'} paired
+              {found.samples.length} sample{found.samples.length === 1 ? '' : 's'} {fasta ? 'found' : 'paired'}
             </span>
           {/if}
-          <span class="text-[13px] text-muted">Paired on <strong>{found.r1}</strong> / <strong>{found.r2}</strong>{custom ? ' (your choice)' : ' (found automatically)'}</span>
-          <Button variant="quiet" size="sm" class="ml-auto" onclick={() => (custom = !custom)}>{custom ? 'Use automatic pairing' : 'Change pairing'}</Button>
+          {#if fasta}
+            {#if !found.samples.length}
+              <span class="text-[13px] text-muted">No FASTA files here (.fasta, .fa, .fna, .fas or .ffn, also with .gz).</span>
+            {/if}
+          {:else}
+            <span class="text-[13px] text-muted">Paired on <strong>{found.r1}</strong> / <strong>{found.r2}</strong>{custom ? ' (your choice)' : ' (found automatically)'}</span>
+            <Button variant="quiet" size="sm" class="ml-auto" onclick={() => (custom = !custom)}>{custom ? 'Use automatic pairing' : 'Change pairing'}</Button>
+          {/if}
         </div>
-        {#if custom}
+        {#if custom && !fasta}
           <div class="flex flex-wrap items-end gap-3 rounded-xl bg-surface-2 p-4">
             <label class="flex flex-col gap-1.5 text-[13px] font-semibold">First read marker <input class="input w-32" bind:value={r1} /></label>
             <label class="flex flex-col gap-1.5 text-[13px] font-semibold">Second read marker <input class="input w-32" bind:value={r2} /></label>
@@ -241,13 +281,15 @@
         {#if found.samples.length}
           <div class="overflow-x-auto rounded-xl border border-line">
             <table class="data min-w-[600px]">
-              <thead><tr><th>Sample</th><th>First read (R1)</th><th>Second read (R2)</th></tr></thead>
+              <thead>
+                {#if fasta}<tr><th>Sample</th><th>FASTA file</th></tr>{:else}<tr><th>Sample</th><th>First read (R1)</th><th>Second read (R2)</th></tr>{/if}
+              </thead>
               <tbody>
                 {#each found.samples as s}
                   <tr>
                     <td class="font-semibold">{s.sample}</td>
                     <td class="text-ink-2">{base(s.r1)}</td>
-                    <td class={s.r2 ? 'text-ink-2' : 'font-semibold text-danger'}>{s.r2 ? base(s.r2) : 'missing'}</td>
+                    {#if !fasta}<td class={s.r2 ? 'text-ink-2' : 'font-semibold text-danger'}>{s.r2 ? base(s.r2) : 'missing'}</td>{/if}
                   </tr>
                 {/each}
               </tbody>
@@ -261,17 +303,21 @@
     {:else if step === 2}
       <div>
         <h2 class="m-0 mb-1 text-xl font-semibold">Which workflow?</h2>
-        <p class="m-0 text-sm text-muted">You can switch single steps off in the next step.</p>
+        <p class="m-0 text-sm text-muted">
+          You can switch single steps off in the next step. Workflows that start from {fasta ? 'paired reads' : 'FASTA files'} can't run on these files.
+        </p>
       </div>
       <div class="grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-3.5" role="radiogroup" aria-label="Workflow">
         {#each workflows as w (w.id)}
           {@const sel = w.id === wfId}
+          {@const ok = fits(w)}
           <button
             role="radio"
             aria-checked={sel}
+            disabled={!ok}
             onclick={() => { wfId = w.id; wfVersion = null; }}
-            class="flex cursor-pointer flex-col items-start gap-2 rounded-2xl border-2 p-4.5 text-left text-ink transition-colors
-              {sel ? 'border-brand bg-brand-softer' : 'border-line bg-surface hover:border-brand/50'}"
+            class="flex flex-col items-start gap-2 rounded-2xl border-2 p-4.5 text-left text-ink transition-colors
+              {!ok ? 'cursor-not-allowed border-line bg-surface-2 opacity-60' : sel ? 'cursor-pointer border-brand bg-brand-softer' : 'cursor-pointer border-line bg-surface hover:border-brand/50'}"
           >
             <span class="flex flex-wrap items-center gap-2">
               <span class="text-[15px] font-semibold">{w.name}</span>
@@ -279,6 +325,7 @@
             </span>
             <span class="line-clamp-3 text-[13px] leading-snug text-muted">{w.description || 'No description.'}</span>
             {#if !w.builtin}<span class="text-xs font-semibold text-ink-2">Version {w.latest}</span>{/if}
+            {#if !ok}<span class="text-xs font-semibold text-warn-ink">Starts from {w.input_type === 'assemblies' ? 'FASTA files (assemblies)' : 'paired reads'}</span>{/if}
           </button>
         {/each}
       </div>
@@ -330,7 +377,7 @@
         <input class="input h-11 text-[15px]" bind:value={name} placeholder="For example Week 45 controls" />
       </label>
       <div class="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-3 text-sm">
-        <div class="rounded-xl border border-line px-4 py-3.5"><span class="block text-xs text-muted">Reads</span><strong>{found?.samples.length} samples</strong></div>
+        <div class="rounded-xl border border-line px-4 py-3.5"><span class="block text-xs text-muted">{fasta ? 'FASTA files' : 'Reads'}</span><strong>{found?.samples.length} samples</strong></div>
         <div class="rounded-xl border border-line px-4 py-3.5"><span class="block text-xs text-muted">Workflow</span><strong>{view.workflow.name}</strong></div>
         <div class="rounded-xl border border-line px-4 py-3.5"><span class="block text-xs text-muted">Steps</span><strong>{stepsOn} of {view.order.length} on</strong></div>
       </div>
@@ -359,4 +406,4 @@
   </section>
 </div>
 
-<FolderPicker bind:open={picking} start={input} onpick={(p) => { input = p; pair(); }} />
+<FolderPicker bind:open={picking} start={input} title={fasta ? 'Choose the folder of FASTA files' : 'Choose the reads folder'} onpick={(p) => { input = p; pair(); }} />

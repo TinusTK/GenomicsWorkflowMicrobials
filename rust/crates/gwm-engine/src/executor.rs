@@ -37,7 +37,7 @@ use crate::resources::{task_memory_gb, Limits};
 pub struct RunSpec {
     pub run_id: String,
     pub plan: Plan,
-    /// paired samples (every r2 present)
+    /// the samples: read pairs (every r2 present), or FASTA files (no r2)
     pub samples: Vec<Sample>,
     /// holds `tools/<bundle>/`: the tools exactly as they ran
     pub run_dir: PathBuf,
@@ -341,8 +341,9 @@ impl<'a> Executor<'a> {
         match source {
             Source::Reads => {
                 let s = |i: usize| {
+                    // a pair of read files, or the one FASTA file of an assembly
                     let s = &self.spec.samples[i];
-                    vec![s.r1.clone(), s.r2.clone().unwrap_or_default()]
+                    std::iter::once(s.r1.clone()).chain(s.r2.clone()).collect::<Vec<_>>()
                 };
                 Some(match task.sample {
                     Some(i) => s(i),

@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+@import '@fontsource-variable/inter/wght.css';
+@import '@fontsource-variable/space-grotesk/wght.css';
 @import 'tailwindcss';
 
 /* Design tokens: one set of colours for every screen (light and dark). */
@@ -67,8 +68,8 @@
 }
 
 @theme inline {
-  --font-sans: Inter, system-ui, sans-serif;
-  --font-display: 'Space Grotesk', Inter, sans-serif;
+  --font-sans: 'Inter Variable', system-ui, sans-serif;
+  --font-display: 'Space Grotesk Variable', 'Inter Variable', sans-serif;
   --color-ground: var(--ground);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
@@ -103,7 +104,7 @@ body {
   margin: 0;
   background: var(--ground);
   color: var(--ink);
-  font-family: Inter, system-ui, sans-serif;
+  font-family: 'Inter Variable', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -125,7 +126,7 @@ body {
   border: 1px solid var(--line-strong);
   background: var(--surface);
   color: var(--ink);
-  font: 400 14px Inter, sans-serif;
+  font: 400 14px 'Inter Variable', sans-serif;
 }
 
 .label-caps {

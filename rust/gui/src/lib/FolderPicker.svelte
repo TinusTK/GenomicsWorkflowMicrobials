@@ -1,12 +1,17 @@
 <script lang="ts">
-  // Pick a folder of reads: walk folders, see how many read files each has.
+  // Pick a folder of reads or FASTA files: walk folders, see how many such files each has.
   import Button from './ui/Button.svelte';
   import Dialog from './ui/Dialog.svelte';
   import Icon from './ui/Icon.svelte';
   import { get } from './api';
   import { errorText } from './toast.svelte';
 
-  let { open = $bindable(false), start = '', onpick }: { open?: boolean; start?: string; onpick: (path: string) => void } = $props();
+  let {
+    open = $bindable(false),
+    start = '',
+    title = 'Choose the reads folder',
+    onpick,
+  }: { open?: boolean; start?: string; /** the dialog's heading */ title?: string; onpick: (path: string) => void } = $props();
 
   interface Listing {
     path: string;
@@ -33,7 +38,7 @@
   const join = (a: string, b: string) => (a.endsWith('/') ? a + b : `${a}/${b}`);
 </script>
 
-<Dialog bind:open title="Choose the reads folder" wide>
+<Dialog bind:open {title} wide>
   <div class="flex flex-col gap-3">
     <form class="flex gap-2" onsubmit={(e) => { e.preventDefault(); load(typed); }}>
       <label class="sr-only" for="fp-path">Folder</label>
@@ -57,7 +62,7 @@
         {/each}
         {#if listing.reads.length}
           <div class="flex flex-col gap-1 px-4 py-3 text-[13px] text-muted">
-            <span class="font-semibold text-ink-2">{listing.reads.length} read file{listing.reads.length === 1 ? '' : 's'} here</span>
+            <span class="font-semibold text-ink-2">{listing.reads.length} read or FASTA file{listing.reads.length === 1 ? '' : 's'} here</span>
             {#each listing.reads.slice(0, 6) as f}<span>{f}</span>{/each}
             {#if listing.reads.length > 6}<span>…and {listing.reads.length - 6} more</span>{/if}
           </div>

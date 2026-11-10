@@ -561,6 +561,38 @@ pub fn analyze(ga_text: &str, tools: &IndexMap<String, Tool>, taken: &dyn Fn(&st
         .collect();
     let folds: HashSet<String> = gmaps.values().flat_map(|m| m.folds.iter().cloned()).collect();
 
+    // ---- what the workflow starts from. A Galaxy input box may name its
+    // format: fasta means assemblies, fastq means reads. Left empty, a paired
+    // collection ("list:paired") is reads, and a plain list of datasets (or
+    // single datasets) is taken as assemblies (FASTA files), one sample each.
+    let from_assemblies = {
+        let inputs: Vec<&GStep> = gsteps
+            .iter()
+            .filter(|g| matches!(g.kind.as_str(), "data_input" | "data_collection_input"))
+            .collect();
+        let formats: Vec<String> = inputs
+            .iter()
+            .flat_map(|g| match g.state.get("format") {
+                Some(Json::Array(a)) => a.iter().filter_map(Json::as_str).map(str::to_lowercase).collect(),
+                Some(Json::String(t)) => vec![t.to_lowercase()],
+                _ => Vec::new(),
+            })
+            .collect();
+        let paired = inputs.iter().any(|g| {
+            g.state
+                .get("collection_type")
+                .and_then(Json::as_str)
+                .is_some_and(|t| t.contains("paired"))
+        });
+        if formats.iter().any(|f| f.contains("fastq")) {
+            false
+        } else if formats.iter().any(|f| f.contains("fasta")) {
+            true
+        } else {
+            !inputs.is_empty() && !paired
+        }
+    };
+
     // ---- what each Galaxy step is
     let mut kinds: HashMap<u32, Kind> = HashMap::new();
     let mut drafts: IndexMap<String, DraftTool> = IndexMap::new();
@@ -740,7 +772,8 @@ pub fn analyze(ga_text: &str, tools: &IndexMap<String, Tool>, taken: &dyn Fn(&st
             };
             let Some(spec) = tool.inputs.get(input) else { continue };
             let source = match kinds.get(up) {
-                Some(Kind::Input) if spec.kind == "reads" => Some(INPUT.to_string()),
+                // reads go to inputs that take reads, assemblies to the others
+                Some(Kind::Input) if (spec.kind == "reads") != from_assemblies => Some(INPUT.to_string()),
                 Some(Kind::Tool { tool: up_tool, .. }) => gmaps
                     .get(up_tool)
                     .and_then(|m| m.outputs.get(up_out))
@@ -935,7 +968,12 @@ pub fn analyze(ga_text: &str, tools: &IndexMap<String, Tool>, taken: &dyn Fn(&st
         match &kinds[&g.n] {
             Kind::Input => {
                 row.action = "input".into();
-                row.note = "The reads you pick when you start a run.".into();
+                row.note = if from_assemblies {
+                    "The FASTA files (assemblies) you pick when you start a run: Galaxy's list of datasets."
+                } else {
+                    "The reads you pick when you start a run."
+                }
+                .into();
             }
             Kind::LeftOut(why) => row.note = why.clone(),
             Kind::Utility if covered.contains(&g.n) => {
@@ -1005,8 +1043,12 @@ pub fn analyze(ga_text: &str, tools: &IndexMap<String, Tool>, taken: &dyn Fn(&st
     let mut extra = Mapping::new();
     extra.insert("source".into(), Value::String(format!("Galaxy workflow: {name}")));
     let mut input = Mapping::new();
-    input.insert("type".into(), "paired_reads".into());
-    input.insert("pattern".into(), "*_R{1,2}*.gz".into());
+    if from_assemblies {
+        input.insert("type".into(), crate::reads::ASSEMBLIES.into());
+    } else {
+        input.insert("type".into(), "paired_reads".into());
+        input.insert("pattern".into(), "*_R{1,2}*.gz".into());
+    }
     extra.insert("input".into(), Value::Mapping(input));
     let workflow = Workflow {
         id: unique(&slug(&name), taken),

@@ -29,10 +29,10 @@ and run it.
 | Mac (Intel or Apple silicon) | `..._universal.dmg` | Drag the app to Applications. |
 | Linux | `..._amd64.AppImage` or `..._amd64.deb` | |
 
-The installers are not signed yet, so the first start shows a warning:
-
-- **Windows:** "Windows protected your PC": choose **More info**, then **Run anyway**.
-- **Mac:** right-click the app and choose **Open**, then **Open** again.
+- **Windows:** the installer shows "Windows protected your PC": choose
+  **More info**, then **Run anyway**. It is not yet signed by a publisher
+  Windows knows (see [Code signing policy](#code-signing-policy)).
+- **Mac:** the app is signed and checked by Apple, so it opens without a warning.
 
 ### What the app needs
 
@@ -44,9 +44,8 @@ screen and its **Settings** page say what is missing.
   rights and a restart) and **Set up Docker**. Docker Desktop is not needed.
 - **Mac:** Docker through [Colima](https://github.com/abiosoft/colima) (free).
   **Set up Docker** in Settings opens a Terminal window that installs it with
-  Homebrew (and Homebrew itself when it is missing), starts it with all of
-  the Mac's memory but 4 GB (kept for the Mac itself) and sets it to start when you log in. Docker Desktop and
-  Rancher Desktop work too.
+  Homebrew (and Homebrew itself when it is missing) and starts it with all of
+  the Mac's memory but 4 GB (kept for the Mac itself). Docker Desktop and Rancher Desktop work too.
 - **Linux:** Docker Engine or Apptainer. On Ubuntu and Debian, **Set up
   Docker** in Settings installs Docker Engine in a terminal window; log out
   and in again afterwards.
@@ -148,6 +147,13 @@ so next to the setting:
 pairs the files automatically (`_R1/_R2`, `.R1/.R2`, `_1/_2` or `.1/.2`) or
 with your own markers, and shows every pair before you start.
 
+**Assembled contigs:** a workflow can start from FASTA files instead of reads.
+In the builder, click the **Input** box and choose **Assembled contigs**; a
+run then takes a folder of FASTA files (`.fasta`, `.fa`, `.fna`, `.fas`,
+`.ffn`, also with `.gz`), one sample per file, named after the file. That is
+the place for tools that work on an assembly, such as an MLST tool. Importing
+a Galaxy workflow whose input is a list of FASTA files gives such a workflow.
+
 ## Where things are kept
 
 Each run is one folder in **Documents › Genomics Workflow Microbials**, named
@@ -233,7 +239,13 @@ replaced before it is written. Attach it to your issue or email.
 
 - **Windows:** free code signing provided by [SignPath.io](https://signpath.io),
   certificate by [SignPath Foundation](https://signpath.org). This has been
-  applied for; until it is approved the Windows installer is not signed.
+  applied for. Until it is approved, Windows shows its "unknown publisher"
+  warning. A release's Windows files may carry the project's own self-signed
+  certificate (signer `TinusTK`, SHA-1 thumbprint
+  `F32A5B3A091059542CF1C6196F7A41303F8AB819`): where they do, it lets you check
+  a download really is this project's build (right-click the file ›
+  Properties › Digital Signatures), but Windows does not know the certificate,
+  so the warning stays.
 - **Mac:** signed with the maintainer's Apple Developer ID and notarized by Apple.
 - Every installer is built from this repository by GitHub Actions
   (`.github/workflows/release.yml`), from a tagged commit.
@@ -246,7 +258,7 @@ Team roles:
 Privacy policy: <https://tinustk.github.io/GWM/privacy-policy.html>. This
 program will not transfer any information to other networked systems unless
 specifically requested by the user or the person installing or operating it,
-other than the downloads the policy lists (its own updates, fonts, tool
+other than the downloads the policy lists (its own updates, tool
 containers and reference databases), which carry no information about the
 user or their data.
 

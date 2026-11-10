@@ -5,9 +5,35 @@ import type { Step, Tool, Workflow } from './api';
 
 export const INPUT = 'input';
 
-/** What a source gives: the reads, or a step's output. */
+/** The workflow starts from assemblies (a folder of FASTA files), not paired reads. */
+export function fromAssemblies(wf: Pick<Workflow, 'input'>): boolean {
+  return (wf.input as { type?: string } | undefined)?.type === 'assemblies';
+}
+
+/** The kind of file the workflow's own input gives: 'fasta' or 'reads'. */
+export function inputKind(wf: Pick<Workflow, 'input'>): 'fasta' | 'reads' {
+  return fromAssemblies(wf) ? 'fasta' : 'reads';
+}
+
+/** The Input box's title. */
+export function inputTitle(wf: Pick<Workflow, 'input'>): string {
+  return fromAssemblies(wf) ? 'Assembled contigs' : 'Paired reads';
+}
+
+/** Change what the workflow starts from; lines from the Input box that no longer fit are taken out. */
+export function setInputKind(wf: Workflow, tools: Record<string, Tool>, kind: 'fasta' | 'reads') {
+  wf.input =
+    kind === 'fasta'
+      ? { type: 'assemblies', description: 'A folder of FASTA files (assemblies), one sample per file.' }
+      : { type: 'paired_reads', pattern: '*_R{1,2}*.gz', description: 'A folder of paired reads, <sample>_R1...gz and <sample>_R2...gz.' };
+  for (const st of Object.values(wf.steps))
+    for (const [name, srcs] of Object.entries(st.inputs ?? {}))
+      if (tools[st.tool]?.inputs[name]?.type !== kind) st.inputs![name] = srcs.filter((s) => s !== INPUT);
+}
+
+/** What a source gives: the workflow's input (reads or FASTA files), or a step's output. */
 export function sourceType(wf: Workflow, tools: Record<string, Tool>, src: string): string | null {
-  if (src === INPUT) return 'reads';
+  if (src === INPUT) return inputKind(wf);
   const [sid, out] = src.split('.');
   const step = wf.steps[sid];
   const tool = step && tools[step.tool];
@@ -21,7 +47,7 @@ export function stepTool(tools: Record<string, Tool>, step: Step) {
 /** Outputs anywhere in the workflow that fit an input of this type (reads also from the input). */
 export function candidates(wf: Workflow, tools: Record<string, Tool>, forStep: string, type: string): string[] {
   const out: string[] = [];
-  if (type === 'reads') out.push(INPUT);
+  if (type === inputKind(wf)) out.push(INPUT);
   const below = downstream(wf, forStep);
   for (const [sid, st] of Object.entries(wf.steps)) {
     if (sid === forStep || below.has(sid)) continue; // never make a loop
@@ -50,7 +76,7 @@ export function downstream(wf: Workflow, sid: string): Set<string> {
 }
 
 export function label(wf: Workflow, tools: Record<string, Tool>, src: string) {
-  if (src === INPUT) return 'the reads';
+  if (src === INPUT) return fromAssemblies(wf) ? 'the FASTA files' : 'the reads';
   const [sid, out] = src.split('.');
   const st = wf.steps[sid];
   return `${st?.label ?? sid}${out && Object.keys(tools[st?.tool]?.outputs ?? {}).length > 1 ? ` (${out})` : ''}`;

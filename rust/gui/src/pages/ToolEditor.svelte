@@ -234,6 +234,8 @@
   let tryError = $state('');
   const needsReads = $derived(inputs.some((i) => i.type === 'reads'));
   const fileInputs = $derived(inputs.filter((i) => i.type !== 'reads' && i.name.trim()));
+  // a tool that takes an assembly can be tried on the first FASTA file of a folder
+  const needsFasta = $derived(inputs.some((i) => i.type === 'fasta'));
 
   async function tryIt() {
     trying = true;
@@ -359,7 +361,7 @@
           </p>
           <div class="flex flex-wrap items-end gap-2">
             <label class="flex min-w-[260px] flex-1 flex-col gap-1.5 text-[13px] font-semibold">
-              A folder of reads to try it on (its first sample is used)
+              A folder to try it on: reads, or FASTA files for a tool that takes an assembly (the first sample is used)
               <input class="input" bind:value={readsFolder} placeholder="Choose a folder" />
             </label>
             <Button icon="folder" onclick={() => (pickerOpen = true)}>Choose</Button>
@@ -527,10 +529,10 @@
       <section class="card flex flex-col gap-3 p-5">
         <h2 class="m-0 text-base font-semibold">Try it on one sample</h2>
         <p class="m-0 text-[13px] text-muted">Saves your changes, runs the command once and shows what it made. Nothing is added to your runs.</p>
-        {#if needsReads}
+        {#if needsReads || needsFasta}
           <div class="flex flex-wrap items-end gap-2">
             <label class="flex min-w-[260px] flex-1 flex-col gap-1.5 text-[13px] font-semibold">
-              A folder of reads (its first sample is used)
+              {needsReads ? 'A folder of reads (its first sample is used)' : 'A folder of FASTA files (the first one is used)'}
               <input class="input" bind:value={readsFolder} placeholder="Choose a folder" />
             </label>
             <Button icon="folder" onclick={() => (pickerOpen = true)}>Choose</Button>
@@ -538,7 +540,7 @@
         {/if}
         {#each fileInputs as i (i.name)}
           <label class="flex flex-col gap-1.5 text-[13px] font-semibold">
-            A {i.type} file for the input "{i.name}"{i.optional ? ' (optional)' : ''}
+            A {i.type} file for the input "{i.name}"{i.optional ? ' (optional)' : i.type === 'fasta' ? ' (or leave empty to use the folder above)' : ''}
             <input class="input font-mono text-[13px]" bind:value={tryFiles[i.name]} placeholder="The full path of a file, for example from an earlier run's Results folder" />
           </label>
         {/each}
@@ -667,7 +669,7 @@
     </aside>
   </div>
 
-  <FolderPicker bind:open={pickerOpen} start={readsFolder} onpick={(p) => (readsFolder = p)} />
+  <FolderPicker bind:open={pickerOpen} start={readsFolder} title="Choose a folder of reads or FASTA files" onpick={(p) => (readsFolder = p)} />
 
   <Dialog bind:open={deleteOpen} title={`Remove ${f.name} from this computer?`}>
     Its definition and any extra versions of it go. {tool.github ? `Nothing changes in ${tool.github.repo} on GitHub: you can add it again later.` : 'Runs that already used it keep their own copy.'}

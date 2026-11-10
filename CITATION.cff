@@ -10,7 +10,7 @@ abstract: >-
   Galaxy, and tools added from GitHub.
 authors:
   - alias: "TinusTK"
-version: "2.0.4"
+version: "2.0.5"
 date-released: "2026-11-10"
 license: MIT
 type: software

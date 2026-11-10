@@ -23,7 +23,8 @@ use serde_yaml::Value;
 use crate::catalog::{step_tool, Database, Resources, Step, Tool, Workflow, ID_RE};
 use crate::value;
 
-/// The workflow's own input: the paired reads.
+/// The workflow's own input: the paired reads, or (a workflow that starts
+/// from assemblies) the FASTA files.
 pub const INPUT: &str = "input";
 
 #[derive(Debug, thiserror::Error)]
@@ -123,6 +124,20 @@ pub fn resolve<'a>(wf: &'a Workflow, tools: &'a IndexMap<String, Tool>) -> Resul
             if srcs.is_empty() && !spec.optional {
                 return err(format!("step {sid}: input '{name}' is not connected"));
             }
+            // the workflow's own input is reads or assemblies: it must be what this input takes
+            if srcs.iter().any(|s| s == INPUT) {
+                let reads = spec.kind == "reads";
+                if reads && wf.from_assemblies() {
+                    return err(format!(
+                        "step {sid}: '{name}' takes paired reads, but this workflow starts from assembled contigs (FASTA files). Change the workflow's input to Paired reads, or take this step out."
+                    ));
+                }
+                if !reads && !wf.from_assemblies() {
+                    return err(format!(
+                        "step {sid}: '{name}' takes an assembly (a FASTA file), but this workflow starts from paired reads. Connect it to a step that makes an assembly, or change the workflow's input to Assembled contigs."
+                    ));
+                }
+            }
             for src in srcs.iter().filter(|s| *s != INPUT) {
                 let (up, out) = src.split_once('.').unwrap_or((src, ""));
                 let up_tool = step_tool(tools, &steps[up]);
@@ -216,6 +231,9 @@ pub struct Plan {
     pub workflow_id: String,
     pub workflow_version: u32,
     pub workflow_name: String,
+    /// "paired_reads" or "assemblies" (plans made before 2.0.5: empty = paired reads)
+    #[serde(default)]
+    pub input_type: String,
     pub reads_pattern: String,
     pub steps: Vec<PlanStep>,
     /// database id -> folder name under the databases folder
@@ -370,6 +388,7 @@ pub fn plan(
         workflow_id: wf.id.clone(),
         workflow_version: wf.saved_version.max(1),
         workflow_name: wf.name.clone(),
+        input_type: wf.input_type().to_string(),
         reads_pattern: wf.reads_pattern(),
         steps,
         databases: used_dbs,

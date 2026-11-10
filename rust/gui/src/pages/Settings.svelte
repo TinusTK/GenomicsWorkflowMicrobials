@@ -33,11 +33,11 @@
         text: isDesktop()
           ? 'The tools run in Docker, which on a Mac comes with Colima (free). Press Set up Docker: a Terminal window installs it and shows the progress (a few minutes; it may ask for your Mac password), then press Check again.'
           : 'The tools run in Docker, which on a Mac comes with Colima (free). Open Terminal (in Applications › Utilities), paste these lines and press Return, then press Check again.',
-        lines: ['brew install colima docker', colimaStart, 'brew services start colima'],
+        lines: ['brew install colima docker', colimaStart],
         button: true,
         notes: [
           'The first line needs Homebrew (brew.sh). The button installs it for you when it is missing.',
-          'The last line starts Colima whenever you log in. If it says "Permission denied", type sudo chown "$USER":staff ~/Library/LaunchAgents and try it again.',
+          'Colima does not start by itself when the Mac starts: press Start in the side panel when you open the app.',
         ],
       };
     }

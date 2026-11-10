@@ -13,7 +13,7 @@
   import Toggle from '../lib/ui/Toggle.svelte';
   import { get, post, type Tool, type Workflow, type WorkflowView } from '../lib/api';
   import { live } from '../lib/live.svelte';
-  import { addStep, candidates, downstream, INPUT, label as srcLabel, layout, problems, removeStep, slug, sourceType } from '../lib/builder';
+  import { addStep, candidates, downstream, fromAssemblies, INPUT, inputKind, inputTitle, label as srcLabel, layout, problems, removeStep, setInputKind, slug, sourceType } from '../lib/builder';
   import { go, href } from '../lib/router.svelte';
   import { errorText, toasts } from '../lib/toast.svelte';
 
@@ -77,7 +77,8 @@
         position: pos[INPUT],
         deletable: false,
         draggable: editing,
-        data: { title: 'Paired reads', category: 'Input', ins: [], outs: [{ name: 'reads', type: 'reads' }], broken: false, off: false, isInput: true },
+        selected: selected === INPUT,
+        data: { title: inputTitle(wf), category: 'Input', ins: [], outs: [{ name: inputKind(wf), type: inputKind(wf) }], broken: false, off: false, isInput: true },
       },
       ...Object.entries(wf.steps).map(([sid, st]) => {
         const t = tools[st.tool];
@@ -106,7 +107,7 @@
         srcs.forEach((src, n) => {
           // an input that takes every source has no "else": each line counts
           const i = tools[st.tool]?.inputs[inp]?.collect ? 0 : n;
-          const [from, out] = src === INPUT ? [INPUT, 'reads'] : src.split('.');
+          const [from, out] = src === INPUT ? [INPUT, inputKind(wf!)] : src.split('.');
           es.push({
             id: `${src}->${sid}.${inp}`,
             source: from,
@@ -332,7 +333,12 @@
       {/if}
       {#if !Object.keys(wf.steps).length}
         <div class="rounded-xl border border-line bg-surface px-4 py-3.5 text-sm text-ink-2">
-          Start by adding <strong>fastp</strong> (cleans the reads) and <strong>Shovill</strong> (assembly) from the list, then the typing tools you need.
+          {#if fromAssemblies(wf)}
+            This workflow starts from FASTA files (assemblies): add the typing tools you need from the list.
+          {:else}
+            Start by adding <strong>fastp</strong> (cleans the reads) and <strong>Shovill</strong> (assembly) from the list, then the typing tools you need.
+            To start from FASTA files instead, change <strong>Starts from</strong> on the right.
+          {/if}
         </div>
       {/if}
 
@@ -441,11 +447,46 @@
             <Button size="sm" variant="danger" icon="trash" onclick={() => { const s = selected!; change((w) => removeStep(w, s)); selected = null; }}>Remove step</Button>
           </div>
         {/if}
+      {:else if selected === INPUT}
+        <div class="flex flex-col gap-3 text-sm text-muted">
+          <div>
+            <span class="label-caps block">Input</span>
+            <h2 class="m-0 text-base font-semibold text-ink">{inputTitle(wf)}</h2>
+          </div>
+          <p class="m-0">What every run of this workflow starts from: the files in the folder you pick when you start a run.</p>
+          <div class="flex flex-col gap-2" role="radiogroup" aria-label="What the workflow starts from">
+            {#each [['reads', 'Paired reads', 'A folder of FASTQ files, two per sample (R1 and R2). For tools that take reads.'], ['fasta', 'Assembled contigs', 'A folder of FASTA files, one sample per file, named after the file. For tools that take an assembly.']] as [kind, title, what] (kind)}
+              <label
+                class="flex items-start gap-2.5 rounded-xl border-2 px-3.5 py-3 text-[13px]
+                  {inputKind(wf) === kind ? 'border-brand bg-brand-softer' : 'border-line bg-surface'} {editing ? 'cursor-pointer' : ''}"
+              >
+                <input
+                  type="radio"
+                  name="input-kind"
+                  class="mt-0.5"
+                  checked={inputKind(wf) === kind}
+                  disabled={!editing}
+                  onchange={() => {
+                    change((w) => setInputKind(w, tools, kind as 'fasta' | 'reads'));
+                    rebuild();
+                  }}
+                />
+                <span class="flex flex-col gap-0.5"><span class="font-semibold text-ink">{title}</span><span>{what}</span></span>
+              </label>
+            {/each}
+          </div>
+          <p class="m-0 text-xs">Changing this takes out the lines from the Input box that no longer fit.</p>
+          {#if !editing && !builtin}<Button size="sm" icon="edit" onclick={startEditing}>Edit this workflow</Button>{/if}
+          {#if builtin}<p class="m-0 text-xs">This is a built-in workflow: make a copy to change it.</p>{/if}
+        </div>
       {:else}
         <div class="flex flex-col gap-2 text-sm text-muted">
           <h2 class="m-0 text-base font-semibold text-ink">{wf.name}</h2>
           <p class="m-0">{wf.description || 'Click a step to see and change its settings.'}</p>
           <p class="m-0">{Object.keys(wf.steps).length} steps.</p>
+          <p class="m-0">
+            Starts from <strong class="text-ink">{inputTitle(wf).toLowerCase()}</strong>. Click the <strong>Input</strong> box to change that.
+          </p>
           {#if !editing && !builtin}<Button size="sm" icon="edit" onclick={startEditing}>Edit this workflow</Button>{/if}
         </div>
       {/if}

@@ -44,6 +44,8 @@ jobs:
     env:
       # the Mac app is signed and notarized by Apple once the APPLE_* secrets exist
       MAC_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      # the Windows app and installers are signed once WINDOWS_CERTIFICATE exists
+      WIN_SIGNING: ${{ secrets.WINDOWS_CERTIFICATE != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -120,6 +122,26 @@ jobs:
             echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/apple/AuthKey_$APPLE_API_KEY_ID.p8"
           } >> "$GITHUB_ENV"
 
+      # Secrets: WINDOWS_CERTIFICATE (a code signing certificate with its key, a
+      # .pfx file as base64) and WINDOWS_CERTIFICATE_PASSWORD. Today it is the
+      # project's own self-signed certificate: the files carry a signature that
+      # can be checked against the thumbprint in the README, but Windows still
+      # shows its "unknown publisher" warning. Without the secrets: unsigned.
+      - name: Signing certificate (Windows)
+        if: runner.os == 'Windows' && env.WIN_SIGNING == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'signing.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE.Trim()))
+          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD.Trim() -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          Remove-Item $pfx
+          if (-not $cert.Thumbprint) { throw "WINDOWS_CERTIFICATE holds no certificate" }
+          "WINDOWS_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
+
       - name: Engine (macOS, both chips)
         if: runner.os == 'macOS'
         working-directory: rust
@@ -144,6 +166,9 @@ jobs:
         run: |
           if [ "$RUNNER_OS" = macOS ]; then
             ../gui/node_modules/.bin/tauri build --target universal-apple-darwin
+          elif [ -n "${WINDOWS_THUMBPRINT:-}" ]; then
+            # the app, the .exe installer and the .msi are signed and timestamped
+            ../gui/node_modules/.bin/tauri build --config "{\"bundle\":{\"windows\":{\"certificateThumbprint\":\"$WINDOWS_THUMBPRINT\",\"digestAlgorithm\":\"sha256\",\"timestampUrl\":\"http://timestamp.digicert.com\"}}}"
           else
             ../gui/node_modules/.bin/tauri build
           fi

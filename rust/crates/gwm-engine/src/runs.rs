@@ -19,7 +19,7 @@ use std::sync::Mutex;
 
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::Local;
-use gwm_core::reads::{find_samples, pairing_problems, Pairing, Sample};
+use gwm_core::reads::{find_input, input_problems, Pairing, Sample};
 use gwm_core::{catalog, compiler, paths, Catalog};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -156,12 +156,19 @@ pub fn prepare(
 ) -> Result<Value> {
     let started = Local::now();
     let mut wf = cat.load_workflow(workflow, opts.version)?;
-    let input_dir = fs::canonicalize(input_dir).with_context(|| format!("reads folder {}", input_dir.display()))?;
-    let found = find_samples(&input_dir, opts.pairing.as_ref());
+    let input_dir = fs::canonicalize(input_dir).with_context(|| format!("input folder {}", input_dir.display()))?;
+    let fasta = wf.from_assemblies();
+    let found = find_input(&input_dir, wf.input_type(), opts.pairing.as_ref());
     if found.samples.is_empty() {
+        if fasta {
+            bail!(
+                "no FASTA files (.fasta, .fa, .fna, .fas, .ffn, also with .gz) found in {}",
+                input_dir.display()
+            );
+        }
         bail!("no paired reads found in {}", input_dir.display());
     }
-    let problems = pairing_problems(&found);
+    let problems = input_problems(&found);
     if !problems.is_empty() {
         bail!("{}", problems.join(" "));
     }
@@ -198,7 +205,9 @@ pub fn prepare(
     fs::write(details.join("plan.json"), serde_json::to_string_pretty(&plan)?)?;
     let mut csv = String::from("sample,r1,r2\n");
     for s in &found.samples {
-        csv += &format!("{},{},{}\n", s.sample, s.r1.display(), s.r2.as_ref().unwrap().display());
+        // a FASTA sample has one file: its r2 stays empty
+        let r2 = s.r2.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+        csv += &format!("{},{},{r2}\n", s.sample, s.r1.display());
     }
     fs::write(details.join("samples.csv"), csv)?;
     fs::write(rdir.join("README.txt"), readme(&name, &wf.name, found.samples.len()))?;
@@ -210,7 +219,8 @@ pub fn prepare(
     let run = json!({
         "id": run_id, "name": name,
         "workflow": {"id": wf.id, "version": wf.saved_version, "name": wf.name},
-        "input": input_dir, "samples": found.samples.iter().map(|s| &s.sample).collect::<Vec<_>>(),
+        "input": input_dir, "input_type": wf.input_type(),
+        "samples": found.samples.iter().map(|s| &s.sample).collect::<Vec<_>>(),
         "n_samples": found.samples.len(),
         "pairing": {"mode": found.mode, "r1": found.r1, "r2": found.r2, "unpaired": found.unpaired},
         "cleanup": opts.cleanup, "steps_off": steps_off, "status": "queued",
@@ -229,10 +239,10 @@ fn readme(name: &str, workflow: &str, n: usize) -> String {
          Workflow: {workflow}; {n} sample(s).\n\n\
          Results/       the results: samples/<sample>/<step>, combined/, summary/ (the tables)\n\
          Results/pipeline_info/provenance.json   every tool version, container and setting used\n\
-         Run details/   the workflow, read pairs and tools exactly as they ran, and the log\n\
+         Run details/   the workflow, input files and tools exactly as they ran, and the log\n\
          run.json       the app's record of this run\n\n\
          To delete this run, delete this folder (or use Delete in the app).\n\
-         Your read files are not in here and are never touched.\n"
+         Your input files (reads or FASTA files) are not in here and are never touched.\n"
     )
 }
 
@@ -307,7 +317,7 @@ fn read_samples(details: &Path) -> Result<Vec<Sample>> {
             samples.push(Sample {
                 sample: s.into(),
                 r1: r1.into(),
-                r2: Some(r2.into()),
+                r2: Some(r2).filter(|p| !p.trim().is_empty()).map(Into::into),
             });
         }
     }

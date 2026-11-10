@@ -330,7 +330,7 @@ fn outputs_from(done: &TrialResult) -> Mapping {
 }
 
 /// Set a draft tool up: its command from its help text, then (with a folder of
-/// reads) a try-out, its outputs from what the try-out made, and Ready to use
+/// reads, or of FASTA files for a tool that takes an assembly) a try-out, its outputs from what the try-out made, and Ready to use
 /// when that worked.
 pub fn set_up(cat: &Catalog, id: &str, reads_folder: &str, r: &Reporter) -> Result<()> {
     let tool = own_tool(cat, id)?;
@@ -390,21 +390,39 @@ pub fn set_up(cat: &Catalog, id: &str, reads_folder: &str, r: &Reporter) -> Resu
     dump_yaml(&raw, &file)?;
 
     let mut result = json!({"command": g.command, "notes": g.notes, "tried": false, "ready": false});
-    if g.input != "reads" {
-        r.log("This tool works on an assembly, so the app can't try it on reads by itself: use Try on one sample with a contigs file.");
-    } else if reads_folder.trim().is_empty() {
-        r.log("No folder of reads was given, so the command was not tried.");
+    let fasta = g.input != "reads";
+    let folder = gwm_core::paths::native_path(reads_folder.trim());
+    // what to try the command on: the folder given, else the repository's own test file
+    let request = if reads_folder.trim().is_empty() {
+        match crate::selftest::test_input(cat, &own_tool(cat, id)?, r) {
+            Some((req, what)) => {
+                r.log(format!(
+                    "No folder was given, so the command is tried on the repository's own test file ({what})."
+                ));
+                Some(req)
+            }
+            None => {
+                r.log(if fasta {
+                    "This tool works on an assembly. No folder of FASTA files was given and its repository has no test file to use, so the command was not tried: choose a folder and press Set it up for me again."
+                } else {
+                    "No folder of reads was given and the repository has no test reads to use, so the command was not tried."
+                });
+                None
+            }
+        }
+    } else if fasta && gwm_core::reads::first_fasta(&folder).is_none() {
+        r.log("This tool works on an assembly, and the folder has no FASTA file (.fasta, .fa, .fna, .fas, .ffn): choose a folder of FASTA files and press Set it up for me again.");
+        None
     } else {
+        Some(TryRequest {
+            reads_folder: reads_folder.to_string(),
+            ..Default::default()
+        })
+    };
+    if let Some(request) = request {
         r.log("Trying the command on one sample");
         let tool = own_tool(cat, id)?;
-        let done = run_try(
-            cat,
-            &tool,
-            &TryRequest {
-                reads_folder: reads_folder.to_string(),
-                ..Default::default()
-            },
-        )?;
+        let done = run_try(cat, &tool, &request)?;
         result["tried"] = json!(true);
         if done.exit == 0 {
             let found = outputs_from(&done);

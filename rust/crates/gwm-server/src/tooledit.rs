@@ -12,7 +12,7 @@ use std::time::Duration;
 use anyhow::{anyhow, bail, Context, Result};
 use gwm_core::catalog::{dump_yaml, load_yaml, ID_RE};
 use gwm_core::galaxy::{add_tool_version, biocontainers_package};
-use gwm_core::reads::find_samples;
+use gwm_core::reads::{find_samples, first_fasta};
 use gwm_core::{paths, Catalog, Tool};
 use gwm_engine::trial::{self, Trial};
 use gwm_engine::Limits;
@@ -681,7 +681,9 @@ pub(crate) fn help_text(cat: &Catalog, tool: &Tool, program: &str) -> Result<Str
 
 #[derive(Deserialize, Default)]
 pub struct TryRequest {
-    /// a folder of reads: its first sample is used for inputs that take reads
+    /// a folder of reads: its first sample is used for inputs that take reads.
+    /// For a tool that takes an assembly it may be a folder of FASTA files (or
+    /// one FASTA file): the first is used when no file is given for that input.
     #[serde(default)]
     pub(crate) reads_folder: String,
     /// input -> a file on this computer, for the other inputs
@@ -741,6 +743,24 @@ pub(crate) fn run_try(cat: &Catalog, tool: &Tool, req: &TryRequest) -> Result<tr
                 bail!("input {name}: no file at {f}");
             }
             t.inputs.insert(name.clone(), vec![path]);
+        } else if let Some(fasta) = Some(req.reads_folder.trim())
+            .filter(|f| spec.kind == "fasta" && !f.is_empty())
+            .and_then(|f| first_fasta(&paths::native_path(f)))
+        {
+            // an assembly straight from the folder (or file) chosen to try with
+            if let Some(stem) = fasta
+                .file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|n| n.split('.').next())
+            {
+                t.sample = stem.to_string();
+            }
+            t.inputs.insert(name.clone(), vec![fasta]);
+        } else if spec.kind == "fasta" && !req.reads_folder.trim().is_empty() {
+            bail!(
+                "no FASTA file (.fasta, .fa, .fna, .fas, .ffn) in {}: this tool takes an assembly, so choose a folder of FASTA files to try with",
+                req.reads_folder.trim()
+            );
         } else if !spec.optional {
             bail!("input {name}: give a file to try with");
         }

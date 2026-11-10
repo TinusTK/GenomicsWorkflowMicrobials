@@ -237,6 +237,25 @@ fn one() -> u32 {
 }
 
 impl Workflow {
+    /// What the workflow starts from: "assemblies" (a folder of FASTA files,
+    /// one sample each) or "paired_reads" (`input: type:` in its file).
+    pub fn input_type(&self) -> &'static str {
+        let kind = self
+            .extra
+            .get("input")
+            .and_then(|i| i.get("type"))
+            .and_then(Value::as_str);
+        if kind == Some(crate::reads::ASSEMBLIES) {
+            crate::reads::ASSEMBLIES
+        } else {
+            "paired_reads"
+        }
+    }
+
+    pub fn from_assemblies(&self) -> bool {
+        self.input_type() == crate::reads::ASSEMBLIES
+    }
+
     /// Reads pattern used when no samples.csv is given.
     pub fn reads_pattern(&self) -> String {
         self.extra
@@ -256,6 +275,8 @@ pub struct WorkflowSummary {
     pub builtin: bool,
     pub versions: Vec<u32>,
     pub latest: u32,
+    /// "paired_reads" or "assemblies": what a run of it starts from
+    pub input_type: String,
 }
 
 // ---------------------------------------------------------------- databases
@@ -540,6 +561,7 @@ impl Catalog {
             .builtin_workflows()?
             .into_iter()
             .map(|wf| WorkflowSummary {
+                input_type: wf.input_type().to_string(),
                 id: wf.id,
                 name: wf.name,
                 description: wf.description,
@@ -558,6 +580,7 @@ impl Catalog {
             let wf: Workflow =
                 serde_yaml::from_value(load_yaml(f)?).with_context(|| format!("reading {}", f.display()))?;
             out.push(WorkflowSummary {
+                input_type: wf.input_type().to_string(),
                 id: wf.id,
                 name: wf.name,
                 description: wf.description,

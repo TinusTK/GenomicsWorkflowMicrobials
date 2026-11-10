@@ -204,7 +204,8 @@ importing the RDH `.ga` files in `reference/` gives the built-in workflow.
 
 ## Tool containers built by this repository
 
-Tools with no BioContainers image (Shigella typing, C. diphtheriae typing) get
+Tools with no BioContainers image (Shigella typing, C. diphtheriae typing,
+MLST typing) get
 theirs from `containers/<name>/Dockerfile`, built and published by
 `.github/workflows/containers.yml` as `ghcr.io/tinustk/gwm-<name>:<version>`.
 A published version is never built over: change the version in the workflow

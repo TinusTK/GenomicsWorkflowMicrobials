@@ -123,13 +123,15 @@
     const rows = (s: PlanStep) => Math.max(Object.keys(wiring(s)).length, Object.keys(s.outputs ?? {}).length, 1);
     const pos = layout(wf, (sid) => 66 + (sid === INPUT ? 1 : rows(byId.get(sid)!)) * 22);
     const port = (names: string[]) => names.map((name) => ({ name, type: '', optional: true }));
+    // a run that started from FASTA files (assemblies), not reads
+    const fasta = run?.input_type === 'assemblies';
     nodes = [
       {
         id: INPUT,
         type: 'step',
         position: pos[INPUT],
         selectable: false,
-        data: { title: 'Paired reads', category: 'Input', ins: [], outs: port(['reads']), broken: false, off: false, isInput: true, state: 'done' },
+        data: { title: fasta ? 'Assembled contigs' : 'Paired reads', category: 'Input', ins: [], outs: port([fasta ? 'fasta' : 'reads']), broken: false, off: false, isInput: true, state: 'done' },
       },
       ...steps.map((s) => {
         const state = stateOf(s);
@@ -161,7 +163,7 @@
         const used = (s.collect ?? []).includes(inp) ? runs : [runs[0] ?? srcs[0]];
         for (const src of used) {
           if (!src) continue;
-          const [from, out] = src === INPUT ? [INPUT, 'reads'] : src.split('.');
+          const [from, out] = src === INPUT ? [INPUT, fasta ? 'fasta' : 'reads'] : src.split('.');
           es.push({ id: `${src}->${s.id}.${inp}`, source: from, sourceHandle: out, target: s.id, targetHandle: inp, animated: state === 'running', style: LINE[state] });
         }
       }
@@ -630,7 +632,7 @@
           <div class="rounded-[10px] bg-surface-2 px-3.5 py-3"><span class="block text-xs text-muted">App</span>Genomics Workflow Microbials {run.engine?.version ?? ''}</div>
           <div class="rounded-[10px] bg-surface-2 px-3.5 py-3"><span class="block text-xs text-muted">Containers</span>{run.engine?.containers ?? ''}</div>
           <div class="rounded-[10px] bg-surface-2 px-3.5 py-3"><span class="block text-xs text-muted">Computer budget</span>{run.limits ? `${run.limits.cpus} threads, ${run.limits.memory_gb} GB` : ''}</div>
-          <div class="rounded-[10px] bg-surface-2 px-3.5 py-3 break-all"><span class="block text-xs text-muted">Reads</span>{run.input}</div>
+          <div class="rounded-[10px] bg-surface-2 px-3.5 py-3 break-all"><span class="block text-xs text-muted">{run.input_type === 'assemblies' ? 'FASTA files' : 'Reads'}</span>{run.input}</div>
           <div class="rounded-[10px] bg-surface-2 px-3.5 py-3"><span class="block text-xs text-muted">Steps switched off</span>{run.steps_off?.length ? run.steps_off.join(', ') : 'none'}</div>
           {#each notes as [k, v]}<div class="rounded-[10px] bg-surface-2 px-3.5 py-3"><span class="block text-xs text-muted">{k}</span>{v}</div>{/each}
         </div>

@@ -1,4 +1,6 @@
-//! Pairing read files into samples (port of v1 `runs.find_samples`).
+//! A run's samples from the folder it is given: read files paired up (port of
+//! v1 `runs.find_samples`), or, for a workflow that starts from assemblies,
+//! one sample per FASTA file.
 
 use std::cmp::Ordering;
 use std::fs;
@@ -9,6 +11,18 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 static READS_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\.(fastq|fq)(\.gz)?$|\.gz$").unwrap());
+static FASTA_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\.(fasta|fa|fna|fas|ffn)(\.gz)?$").unwrap());
+
+/// A workflow's `input: type:` when it starts from assemblies (FASTA files);
+/// anything else is paired reads.
+pub const ASSEMBLIES: &str = "assemblies";
+/// [`Found::mode`] of samples that are FASTA files.
+pub const FASTA_MODE: &str = "fasta";
+
+/// A FASTA file by its name: .fasta, .fa, .fna, .fas or .ffn, also with .gz.
+pub fn is_fasta(name: &str) -> bool {
+    FASTA_RE.is_match(name)
+}
 
 /// Tried in this order by Auto; the one that pairs the most files wins.
 pub const PAIRINGS: [(&str, &str); 4] = [("_R1", "_R2"), (".R1", ".R2"), ("_1", "_2"), (".1", ".2")];
@@ -27,8 +41,9 @@ pub struct Pairing {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Sample {
     pub sample: String,
+    /// the first read file, or the sample's FASTA file
     pub r1: PathBuf,
-    /// None: no matching R2 file (the run can't start)
+    /// None: no matching R2 file (the run can't start); always None for a FASTA file
     pub r2: Option<PathBuf>,
 }
 
@@ -159,6 +174,65 @@ pub fn find_samples(dir: &Path, pairing: Option<&Pairing>) -> Found {
     }
 }
 
+/// The FASTA files in `dir`, one sample each, named after the file.
+pub fn find_assemblies(dir: &Path) -> Found {
+    let mut names: Vec<String> = fs::read_dir(dir)
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| e.path().is_file())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter(|n| is_fasta(n))
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort_by(|a, b| natural_cmp(a, b));
+    Found {
+        samples: names
+            .iter()
+            .map(|n| Sample {
+                sample: FASTA_RE.replace(n, "").into_owned(),
+                r1: dir.join(n),
+                r2: None,
+            })
+            .collect(),
+        unpaired: Vec::new(),
+        r1: String::new(),
+        r2: String::new(),
+        mode: FASTA_MODE.to_string(),
+    }
+}
+
+/// The first FASTA file to try a tool on: `path` itself when it is one, else
+/// the first in that folder.
+pub fn first_fasta(path: &Path) -> Option<PathBuf> {
+    if path.is_file() {
+        return path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .filter(|n| is_fasta(n))
+            .map(|_| path.to_path_buf());
+    }
+    find_assemblies(path).samples.into_iter().next().map(|s| s.r1)
+}
+
+/// The samples of a run from its input folder, for a workflow's input type.
+pub fn find_input(dir: &Path, input_type: &str, pairing: Option<&Pairing>) -> Found {
+    if input_type == ASSEMBLIES {
+        find_assemblies(dir)
+    } else {
+        find_samples(dir, pairing)
+    }
+}
+
+/// Plain error messages for samples that can't run (see [`find_input`]).
+pub fn input_problems(found: &Found) -> Vec<String> {
+    if found.mode == FASTA_MODE {
+        same_names(found, "files")
+    } else {
+        pairing_problems(found)
+    }
+}
+
 /// Plain error messages for pairs that can't run.
 pub fn pairing_problems(found: &Found) -> Vec<String> {
     let mut out = Vec::new();
@@ -168,6 +242,12 @@ pub fn pairing_problems(found: &Found) -> Vec<String> {
             out.push(format!("{}: {name} has no matching {} file.", s.sample, found.r2));
         }
     }
+    out.extend(same_names(found, "pairs"));
+    out
+}
+
+/// Two samples can't have one name: their results would land in one folder.
+fn same_names(found: &Found, what: &str) -> Vec<String> {
     let mut seen: Vec<(&str, usize)> = Vec::new();
     for s in &found.samples {
         match seen.iter_mut().find(|(n, _)| *n == s.sample) {
@@ -175,12 +255,16 @@ pub fn pairing_problems(found: &Found) -> Vec<String> {
             None => seen.push((&s.sample, 1)),
         }
     }
-    for (name, count) in seen.into_iter().filter(|(_, c)| *c > 1) {
-        out.push(format!(
-            "Sample name {name} is used by {count} pairs: rename the files or change the pairing."
-        ));
-    }
-    out
+    seen.into_iter()
+        .filter(|(_, c)| *c > 1)
+        .map(|(name, count)| {
+            if what == "pairs" {
+                format!("Sample name {name} is used by {count} pairs: rename the files or change the pairing.")
+            } else {
+                format!("Sample name {name} is used by {count} files: rename one of them.")
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -223,6 +307,37 @@ mod tests {
         assert!(f.samples[0].r2.is_none());
         assert_eq!(f.unpaired, ["lonely.fastq.gz"]);
         assert_eq!(pairing_problems(&f), ["B2: B2_R1.fq.gz has no matching _R2 file."]);
+        fs::remove_dir_all(&d).ok();
+    }
+
+    #[test]
+    fn fasta_folder() {
+        let d = std::env::temp_dir().join(format!("gwm-fasta-{}", std::process::id()));
+        fs::create_dir_all(&d).unwrap();
+        for n in [
+            "B10.fasta",
+            "b2.fa",
+            "C.contigs.fna.gz",
+            "C.contigs.fas",
+            "notes.txt",
+            "reads_R1.fastq.gz",
+        ] {
+            fs::write(d.join(n), b"").unwrap();
+        }
+        let f = find_input(&d, ASSEMBLIES, None);
+        let names: Vec<&str> = f.samples.iter().map(|s| s.sample.as_str()).collect();
+        assert_eq!(names, ["b2", "B10", "C.contigs", "C.contigs"]);
+        assert!(f.samples.iter().all(|s| s.r2.is_none()));
+        assert_eq!(f.mode, FASTA_MODE);
+        assert_eq!(
+            input_problems(&f),
+            ["Sample name C.contigs is used by 2 files: rename one of them."]
+        );
+        assert_eq!(first_fasta(&d), Some(d.join("b2.fa")));
+        assert_eq!(first_fasta(&d.join("B10.fasta")), Some(d.join("B10.fasta")));
+        assert_eq!(first_fasta(&d.join("notes.txt")), None);
+        // the same folder as reads: the FASTA files are not samples
+        assert_eq!(find_input(&d, "paired_reads", None).samples.len(), 1);
         fs::remove_dir_all(&d).ok();
     }
 }

@@ -8,6 +8,7 @@ pub mod cleanup;
 pub mod hardware;
 pub mod import;
 pub mod jobs;
+mod selftest;
 pub mod tooledit;
 
 use std::fs;
@@ -21,7 +22,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use gwm_core::paths::native_path;
-use gwm_core::reads::{find_samples, natural_cmp, pairing_problems, Pairing};
+use gwm_core::reads::{find_input, input_problems, is_fasta, natural_cmp, Pairing, FASTA_MODE};
 use gwm_core::{compiler, galaxy, Catalog, Workflow};
 use gwm_engine::runs::{self, StartOptions};
 use serde::Deserialize;
@@ -225,7 +226,7 @@ async fn check_workflow(State(a): State<App>, Json(b): Json<CheckReq>) -> Api {
     let found = b
         .input
         .as_deref()
-        .map(|i| find_samples(&native_path(i), b.pairing.as_ref()));
+        .map(|i| find_input(&native_path(i), wf.input_type(), b.pairing.as_ref()));
     let cat = a.cat.clone();
     let wf2 = wf.clone();
     let n = found.as_ref().map(|f| f.samples.len());
@@ -239,9 +240,14 @@ async fn check_workflow(State(a): State<App>, Json(b): Json<CheckReq>) -> Api {
     }
     if let Some(f) = &found {
         if f.samples.is_empty() {
-            warns.insert(0, json!({"level": "error", "step": null, "message": format!("No paired reads found (pairing on {} / {}).", f.r1, f.r2)}));
+            let message = if f.mode == FASTA_MODE {
+                "No FASTA files found in this folder (.fasta, .fa, .fna, .fas, .ffn, also with .gz).".to_string()
+            } else {
+                format!("No paired reads found (pairing on {} / {}).", f.r1, f.r2)
+            };
+            warns.insert(0, json!({"level": "error", "step": null, "message": message}));
         }
-        for m in pairing_problems(f) {
+        for m in input_problems(f) {
             warns.push(json!({"level": "error", "step": null, "message": m}));
         }
     }
@@ -457,7 +463,7 @@ async fn browse(State(a): State<App>, Query(q): Query<BrowseQ>) -> Api {
             let p = e.path();
             if p.is_dir() {
                 dirs.push(name);
-            } else if name.ends_with(".gz") || name.ends_with(".fastq") || name.ends_with(".fq") {
+            } else if name.ends_with(".gz") || name.ends_with(".fastq") || name.ends_with(".fq") || is_fasta(&name) {
                 reads.push(name);
             }
         }
@@ -472,11 +478,15 @@ async fn browse(State(a): State<App>, Query(q): Query<BrowseQ>) -> Api {
 struct ReadsReq {
     input: String,
     pairing: Option<Pairing>,
+    /// "assemblies": the folder's FASTA files, one sample each; else paired reads
+    #[serde(default)]
+    input_type: String,
 }
 
+/// The samples a run would have from this folder.
 async fn pair_reads(Json(b): Json<ReadsReq>) -> Api {
-    let found = find_samples(&native_path(&b.input), b.pairing.as_ref());
-    let problems = pairing_problems(&found);
+    let found = find_input(&native_path(&b.input), &b.input_type, b.pairing.as_ref());
+    let problems = input_problems(&found);
     ok(json!({"found": found, "problems": problems}))
 }
 

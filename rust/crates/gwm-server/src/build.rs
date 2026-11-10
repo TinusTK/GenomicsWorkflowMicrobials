@@ -65,7 +65,10 @@ pub fn detect(full: &str, branch: &str) -> Option<(&'static str, String)> {
 }
 
 /// The container recipe the app writes for a conda file or a Python package
-/// (same shape as this project's own containers in containers/).
+/// (same shape as this project's own containers in containers/). The tool's
+/// own package is installed in place (`pip install -e`) first, falling back to
+/// a plain install: files a repository keeps beside its code, such as a
+/// bundled database, are then where the tool looks for them.
 fn recipe(kind: &str, file: &str) -> String {
     if kind == "conda" {
         format!(
@@ -76,7 +79,9 @@ fn recipe(kind: &str, file: &str) -> String {
              COPY . /opt/tool-src\n\
              # the tool itself, when it is a Python package its environment file does not list\n\
              RUN if [ -x /opt/conda/bin/python ]; then if [ -f /opt/tool-src/pyproject.toml ] || [ -f /opt/tool-src/setup.py ]; then \\\n\
-             \x20     /opt/conda/bin/python -m pip install --no-cache-dir --no-deps /opt/tool-src || echo 'the repository itself was not installed'; fi; fi\n\
+             \x20     /opt/conda/bin/python -m pip install --no-cache-dir --no-deps -e /opt/tool-src \\\n\
+             \x20     || /opt/conda/bin/python -m pip install --no-cache-dir --no-deps /opt/tool-src \\\n\
+             \x20     || echo 'the repository itself was not installed'; fi; fi\n\
              ENV PATH=/opt/conda/bin:$PATH\n\
              ENTRYPOINT []\n"
         )
@@ -85,14 +90,14 @@ fn recipe(kind: &str, file: &str) -> String {
          RUN apt-get update && apt-get install -y --no-install-recommends git build-essential \\\n\
          \x20   && rm -rf /var/lib/apt/lists/*\n\
          COPY . /opt/tool-src\n\
-         RUN pip install --no-cache-dir /opt/tool-src\n\
+         RUN pip install --no-cache-dir -e /opt/tool-src || pip install --no-cache-dir /opt/tool-src\n\
          ENTRYPOINT []\n"
             .to_string()
     }
 }
 
 /// Unpack a repository's archive into `dest` (without its top folder).
-fn unpack(url: &str, dest: &Path) -> Result<()> {
+pub(crate) fn unpack(url: &str, dest: &Path) -> Result<()> {
     let resp = ureq::get(url)
         .set("User-Agent", AGENT)
         .timeout(Duration::from_secs(900))
@@ -222,6 +227,8 @@ pub fn build(cat: &Catalog, id: &str, r: &Reporter) -> Result<()> {
         fs::write(&recipe_file, recipe(&kind, &file))?;
         docker_build(&tag, &recipe_file, &src, r)?;
     }
+    // the repository is in hand: keep its test files, to try the tool on
+    crate::selftest::keep_test_files(cat, id, &src);
     let _ = fs::remove_dir_all(&dir);
 
     let path = tool.dir.join("tool.yml");
@@ -235,6 +242,8 @@ pub fn build(cat: &Catalog, id: &str, r: &Reporter) -> Result<()> {
     raw.insert(y("built"), Value::Mapping(built));
     dump_yaml(&raw, &path)?;
     r.log(format!("Built: {tag}"));
+    // a container that builds is not yet a tool that works: try it
+    crate::selftest::check_after_build(cat, id, r);
     r.result(json!({"container": tag}));
     Ok(())
 }

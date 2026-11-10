@@ -1,7 +1,7 @@
 #!/bin/bash
 # Genomics Workflow Microbials, Settings > Set up Docker (Mac).
 # Installs Colima and Docker with Homebrew (Homebrew itself first when it is
-# missing), starts Colima and sets it to start at login.
+# missing) and starts Colima.
 # @CPUS@ and @MEMORY@ are filled in by the app (half of this Mac's threads; all of its memory but 4 GB).
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
@@ -42,20 +42,10 @@ else
   colima start --cpu @CPUS@ --memory @MEMORY@ || stop "Colima could not start."
 fi
 
-echo
-echo "Setting Colima to start when you log in..."
-agents="$HOME/Library/LaunchAgents"
-if ! brew services start colima; then
-  if [ -d "$agents" ] && [ ! -w "$agents" ]; then
-    echo
-    echo "Your LaunchAgents folder belongs to another user (an old installer can leave it so)."
-    echo "Putting that right needs your Mac password."
-    sudo chown "$USER":staff "$agents"
-  fi
-  brew services start colima \
-    || echo "Colima is running now, but could not be set to start by itself. After a restart of the Mac, open Terminal and type: colima start"
-fi
+# Colima is not set to start when you log in: it would take its memory all day.
+# The app's Start button starts it, and Stop or Quit stop it.
 
 docker info >/dev/null 2>&1 || stop "Docker did not answer."
 echo
 echo "Docker is ready. Close this window and press Check again in the app."
+echo "From now on, press Start in the app's side panel to switch Docker on."

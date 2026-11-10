@@ -75,6 +75,8 @@ export interface WorkflowSummary {
   builtin: boolean;
   versions: number[];
   latest: number;
+  /** 'paired_reads' or 'assemblies' (FASTA files): what a run of it starts from */
+  input_type?: string;
 }
 
 export interface Step {
@@ -94,6 +96,8 @@ export interface Workflow {
   version: number;
   description: string;
   steps: Record<string, Step>;
+  /** what a run starts from: `type` 'paired_reads' (the default) or 'assemblies' (FASTA files) */
+  input?: { type?: string; pattern?: string; description?: string };
   layout?: Record<string, { x: number; y: number }>;
   [k: string]: unknown;
 }
@@ -201,6 +205,7 @@ export interface Job {
 
 export interface Sample {
   sample: string;
+  /** the first read file, or the sample's FASTA file */
   r1: string;
   r2: string | null;
 }
@@ -258,6 +263,8 @@ export interface PlanStep {
 
 export interface RunDetail extends RunSummary {
   input: string;
+  /** 'assemblies' when the run started from FASTA files */
+  input_type?: string;
   samples: string[];
   steps: Record<string, { tasks: Record<string, TaskState> }>;
   steps_off: string[];
