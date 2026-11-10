@@ -19,5 +19,12 @@ settings: {}
 
 version_command: "gzip --help 2>&1 | head -1"
 
+galaxy:
+  tool: iuc/compress_file/compress_file
+  # the app's own gzip step stands in for any version of the Galaxy tool
+  any_version: true
+  inputs: {input: file}
+  outputs: {output_file: gz}
+
 command: |
   gzip -c "$IN_file" > "out/$(basename "$IN_file").gz"

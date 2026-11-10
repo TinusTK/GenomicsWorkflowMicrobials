@@ -130,6 +130,32 @@ export interface Tool {
   homepage?: string;
   license?: string;
   citation?: string;
+  /** where its tool.yml is */
+  folder?: string;
+  /** outputs switched off for the Run page (all show by default) */
+  hidden_outputs: string[];
+  /** imported from Galaxy, its command is not written yet */
+  draft?: boolean;
+}
+
+/** One step of a Galaxy workflow and what the import makes of it. */
+export interface ImportStep {
+  galaxy_step: number;
+  name: string;
+  galaxy_tool: string;
+  galaxy_version: string;
+  action: 'builtin' | 'new_version' | 'new_tool' | 'summary' | 'input' | 'left_out';
+  step?: string;
+  tool?: string;
+  tool_version?: string;
+  note: string;
+}
+
+export interface ImportResult {
+  id: string;
+  name: string;
+  steps: ImportStep[];
+  version?: number;
 }
 
 export interface Database {
@@ -198,6 +224,10 @@ export interface PlanStep {
   enabled: boolean;
   runnable: boolean;
   inputs: string[];
+  tool_id?: string;
+  /** results folder, `{sample}` = the sample */
+  publish?: string;
+  outputs?: Record<string, { path: string; optional: boolean }>;
 }
 
 export interface RunDetail extends RunSummary {

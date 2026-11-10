@@ -47,6 +47,16 @@ settings:
 
 version_command: kraken2 --version 2>&1 | head -1 | sed 's/^Kraken version //'
 
+galaxy:
+  tool: iuc/kraken2/kraken2
+  inputs: {"single_paired|input_pair": reads}
+  outputs: {report_output: report}
+  settings:
+    confidence: confidence
+    min_base_quality: min_base_quality
+    minimum_hit_groups: minimum_hit_groups
+    quick: quick
+
 command: |
   args=()
   [ "$S_quick" = true ] && args+=(--quick)

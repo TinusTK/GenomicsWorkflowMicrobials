@@ -1,114 +1,152 @@
-// Reads the summary tables a run makes into one row per sample for the
-// "At a glance" table: organism, MLST, serovar / emm, AMR genes, quality.
+// Result files of a run: which files a step made, which of them show (the
+// Tools page can switch a tool's outputs off), and reading tables.
 
-import { fileText } from './api';
+import type { PlanStep } from './api';
 
 export type Table = { header: string[]; rows: string[][] };
 
-export function parseTsv(text: string, hasHeader = true): Table {
+export function parseTsv(text: string, hasHeader = true, sep = '\t'): Table {
   const lines = text.split(/\r?\n/).filter((l) => l.trim());
-  const cells = lines.map((l) => l.split('\t'));
+  const cells = lines.map((l) => l.split(sep));
   return hasHeader ? { header: cells[0] ?? [], rows: cells.slice(1) } : { header: [], rows: cells };
 }
 
-/** "S0000066_CTRL_SAL_19102026_S29_L001.fasta" -> "S0000066_CTRL_SAL_19102026_S29_L001" */
-export function sampleOf(name: string) {
-  return name
-    .split(/[\\/]/)
-    .pop()!
-    .replace(/\.(contigs\.fa|fasta|fa|fna|tmp|tsv|tab)$/i, '');
+/** How a result file is shown: as a table, as text, opened in its own tab, or download only. */
+export function fileKind(path: string): 'table' | 'text' | 'page' | 'other' {
+  if (/\.(tsv|tab|csv)$/i.test(path) || /summary_(matches|partials|virulence)\.txt$/.test(path) || /\.amrfinder\.out$/.test(path)) return 'table';
+  if (/\.(txt|log|json|yml|yaml)$/i.test(path)) return 'text';
+  if (/\.html?$/i.test(path)) return 'page';
+  return 'other';
 }
 
-export interface Glance {
-  sample: string;
-  scheme?: string;
-  st?: string;
-  serovar?: string;
-  emm?: string;
-  amr: string[];
-  completeness?: string;
-  contamination?: string;
-  depth?: string;
-  species?: string;
+const ABRICATE = ['#FILE', 'SEQUENCE', 'START', 'END', 'STRAND', 'GENE', 'COVERAGE', 'COVERAGE_MAP', 'GAPS', '%COVERAGE', '%IDENTITY', 'DATABASE', 'ACCESSION', 'PRODUCT', 'RESISTANCE'];
+
+/** Column headings for the files that have no heading line of their own; null when the file has one. */
+function headings(path: string, text: string): string[] | null {
+  const first = text.split(/\r?\n/).find((l) => l.trim()) ?? '';
+  const width = first.split('\t').length;
+  if (/\.mlst\.tsv$/.test(path)) return ['Sample', 'Scheme', 'ST', ...Array.from({ length: Math.max(0, width - 3) }, (_, i) => `Allele ${i + 1}`)];
+  if (/\.emmtyper\.tsv$/.test(path)) return ['Sample', 'Clusters', 'emm type', 'Other emm-like alleles', 'emm cluster'];
+  if (/emmtyper_output\.tsv$/.test(path)) return ['Sample', 'Clusters', 'emm type', 'Other emm-like alleles', 'Isolate'];
+  if (/\.abricate\.tsv$/.test(path) && first && !first.startsWith('#FILE')) return ABRICATE;
+  return null;
 }
 
-const col = (t: Table, name: string) => t.header.findIndex((h) => h.trim().toLowerCase() === name.toLowerCase());
+/** A file's text as a table, always with column headings (ShigaPass's own files use ';'). */
+export function asTable(path: string, text: string): Table {
+  const sep = path.endsWith('.csv') ? (text.split('\n')[0].includes(';') ? ';' : ',') : '\t';
+  const known = headings(path, text);
+  return known ? { header: known, rows: parseTsv(text, false, sep).rows } : parseTsv(text, true, sep);
+}
 
-export async function glance(runId: string, samples: string[], files: string[]): Promise<Glance[]> {
-  const rows = new Map<string, Glance>(samples.map((s) => [s, { sample: s, amr: [] }]));
-  const row = (name: string) => {
-    const s = sampleOf(name);
-    if (!rows.has(s)) rows.set(s, { sample: s, amr: [] });
-    return rows.get(s)!;
-  };
-  const read = async (path: string, header = true) => {
-    if (!files.includes(path)) return null;
-    const text = await fileText(runId, path);
-    return text ? parseTsv(text, header) : null;
-  };
+/** The same output of several samples as one table: one heading line, every sample's rows. */
+export function combine(parts: { sample: string; path: string; text: string }[]): Table {
+  let header: string[] = [];
+  const rows: string[][] = [];
+  // a "Sample" column in front, unless the rows already start with the sample
+  let named: boolean | null = null;
+  for (const p of parts) {
+    const t = asTable(p.path, p.text);
+    if (!t.header.length && !t.rows.length) continue;
+    if (named === null) named = p.sample === 'all' || (t.rows[0]?.[0] ?? '').includes(p.sample);
+    if (!header.length) header = named ? t.header : ['Sample', ...t.header];
+    for (const r of t.rows) rows.push(named ? r : [p.sample, ...r]);
+  }
+  return { header, rows };
+}
 
-  const [mlst, sistr, emm, checkm, abricate, bracken] = await Promise.all([
-    read('summary/mlst_output.tsv'),
-    read('summary/sistr_output.tsv'),
-    read('summary/emmtyper_output.tsv', false),
-    read('summary/checkm_depth_output.tsv'),
-    read('summary/abricate_output.tsv'),
-    read('summary/bracken_output.tsv'),
-  ]);
-  if (mlst) {
-    const [n, sc, st] = [col(mlst, 'name'), col(mlst, 'scheme'), col(mlst, 'ST')];
-    for (const r of mlst.rows) Object.assign(row(r[n] ?? r[0]), { scheme: r[sc], st: r[st] && r[st] !== '-' ? `ST${r[st]}` : 'no ST' });
+/** A tool's output path pattern (`out/{sample}.x.tsv`, `out/*.tsv`, `out/{a,b}*`) as a test on a file name. */
+function nameTest(pattern: string): RegExp {
+  const name = pattern.split('/').pop() ?? '';
+  let re = '';
+  for (let i = 0; i < name.length; i++) {
+    const c = name[i];
+    if (name.startsWith('{sample}', i)) {
+      re += '.+';
+      i += '{sample}'.length - 1;
+    } else if (c === '{') {
+      const end = name.indexOf('}', i);
+      const inner = name.slice(i + 1, end < 0 ? name.length : end);
+      // {1,2} and {a,b}: any one of them
+      re += `(?:${inner.split(',').map(escape).join('|')})`;
+      i = end < 0 ? name.length : end;
+    } else if (c === '*') re += '.*';
+    else if (c === '?') re += '.';
+    else re += escape(c);
   }
-  if (sistr) {
-    const [n, sv] = [col(sistr, 'name'), col(sistr, 'serovar')];
-    // SISTR writes "-:-:-" for a non-Salmonella genome: no serovar
-    for (const r of sistr.rows) if (r[sv] && !/^[-:\s]*$/.test(r[sv])) row(r[n] ?? r[0]).serovar = r[sv];
-  }
-  if (emm) {
-    for (const r of emm.rows) if (r[2] && r[2] !== '-') row(r[0]).emm = r[2];
-  }
-  if (checkm) {
-    const [n, c, x] = [col(checkm, 'Bin Id'), col(checkm, 'Completeness'), col(checkm, 'Contamination')];
-    for (const r of checkm.rows) {
-      const g = row(r[n] ?? r[0]);
-      g.completeness = r[c];
-      g.contamination = r[x];
-      g.depth = r[r.length - 1]?.trim();
-    }
-  }
-  if (abricate) {
-    const [f, gene, db] = [col(abricate, '#FILE'), col(abricate, 'GENE'), col(abricate, 'DATABASE')];
-    for (const r of abricate.rows) {
-      if (r[f] === '#FILE' || (db >= 0 && r[db] !== 'ncbi')) continue;
-      const g = row(r[f]);
-      if (r[gene] && !g.amr.includes(r[gene])) g.amr.push(r[gene]);
-    }
-  }
-  if (bracken) {
-    // name, taxonomy_id, ..., fraction_total_reads per sample: keep the top species
-    const [n, frac] = [col(bracken, 'name'), col(bracken, 'fraction_total_reads')];
-    const s = col(bracken, 'sample');
-    if (n >= 0 && frac >= 0 && s >= 0) {
-      const best = new Map<string, [string, number]>();
-      for (const r of bracken.rows) {
-        const v = parseFloat(r[frac]);
-        if (!(v >= 0)) continue;
-        const cur = best.get(r[s]);
-        if (!cur || v > cur[1]) best.set(r[s], [r[n], v]);
+  return new RegExp(`^${re}$`);
+}
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** The folder a step's files are in for one sample ('all' for all-sample steps). */
+export function stepFolder(step: PlanStep, sample: string) {
+  return (step.publish ?? '').replace('{sample}', sample);
+}
+
+/**
+ * The result files of a step (for one sample, or of an all-sample step) that
+ * show: every file in its folder, minus the outputs switched off on the Tools page.
+ */
+export function stepFiles(step: PlanStep, sample: string, files: string[], hidden: string[] = []): string[] {
+  const folder = stepFolder(step, sample);
+  if (!folder) return [];
+  const off = hidden.map((o) => step.outputs?.[o]?.path).filter(Boolean).map((p) => nameTest(p!));
+  const on = Object.entries(step.outputs ?? {})
+    .filter(([o]) => !hidden.includes(o))
+    .map(([, v]) => nameTest(v.path));
+  return files.filter((f) => {
+    if (!f.startsWith(folder + '/')) return false;
+    const name = f.slice(folder.length + 1);
+    if (name.includes('/')) return false; // a folder inside belongs to another step
+    return on.some((t) => t.test(name)) || !off.some((t) => t.test(name));
+  });
+}
+
+/** One table of a step: the same output of every sample, or one file of an all-sample step. */
+export interface View {
+  key: string;
+  title: string;
+  files: { sample: string; path: string }[];
+}
+
+/**
+ * What a step made, for showing: its tables (per-sample steps: every sample
+ * together, one table per output) and its other files (reports, logs ...).
+ */
+export function stepViews(step: PlanStep, samples: string[], files: string[], hidden: string[] = []): { tables: View[]; others: string[] } {
+  const tables: View[] = [];
+  const others: string[] = [];
+  for (const sample of step.per_sample ? samples : ['all']) {
+    for (const path of stepFiles(step, sample, files, hidden)) {
+      if (fileKind(path) !== 'table') {
+        others.push(path);
+        continue;
       }
-      for (const [smp, [name, v]] of best) row(smp).species = `${name} (${Math.round(v * 100)}%)`;
+      const name = path.split('/').pop()!;
+      const title = step.per_sample ? name.replace(sample, '').replace(/^[._-]+/, '') : name;
+      const key = step.per_sample ? title : path;
+      let view = tables.find((v) => v.key === key);
+      if (!view) tables.push((view = { key, title, files: [] }));
+      view.files.push({ sample, path });
     }
   }
-  return [...rows.values()];
+  return { tables, others };
 }
 
-/** Friendly titles for the summary tables. */
+/** Friendly titles for the tables. */
 export const TABLE_TITLES: Record<string, string> = {
   'mlst_output.tsv': 'MLST',
   'sistr_output.tsv': 'SISTR serovar',
   'emmtyper_output.tsv': 'emm type',
   'abricate_output.tsv': 'ABRicate genes',
   'quast_output.tsv': 'Assembly quality (QUAST)',
-  'checkm_depth_output.tsv': 'Completeness, contamination and depth',
+  'checkm_depth_output.tsv': 'Completeness, contamination and depth (CheckM)',
+  'depth_output.tsv': 'Sequencing depth',
   'bracken_output.tsv': 'Species abundance (Bracken)',
+  'shigella_typing_report.tsv': 'Shigella typing (ShigaPass and Mykrobe)',
+  'shigapass_report.tsv': 'ShigaPass',
+  'mykrobe_report.tsv': 'Mykrobe (Shigella)',
+  'cdiphtheriae_typing.tsv': 'C. diphtheriae typing',
 };
+
+export const titleOf = (path: string) => TABLE_TITLES[path.split('/').pop()!] ?? path.split('/').pop()!;

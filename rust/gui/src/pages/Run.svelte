@@ -1,15 +1,16 @@
 <script lang="ts">
-  // One run: live progress, the pipeline with a square per sample, results, files, details.
-  import { onDestroy } from 'svelte';
+  // One run: live progress, the pipeline with a square per sample (click a step
+  // for its own output), one results table per tool, files, details.
+  import { onDestroy, untrack } from 'svelte';
   import PageHeader from '../lib/PageHeader.svelte';
   import Button from '../lib/ui/Button.svelte';
   import Dialog from '../lib/ui/Dialog.svelte';
   import Icon from '../lib/ui/Icon.svelte';
   import Pill from '../lib/ui/Pill.svelte';
-  import { del, fileText, fileUrl, get, post, type PlanStep, type RunDetail } from '../lib/api';
+  import { del, fileText, fileUrl, get, post, type PlanStep, type RunDetail, type Tool } from '../lib/api';
   import { openFolder } from '../lib/desktop';
   import { duration, live, size, when } from '../lib/live.svelte';
-  import { glance, parseTsv, TABLE_TITLES, type Glance, type Table } from '../lib/results';
+  import { asTable, combine, fileKind, stepFiles, stepViews, titleOf, type Table } from '../lib/results';
   import { go, href } from '../lib/router.svelte';
   import { errorText, toasts } from '../lib/toast.svelte';
 
@@ -18,9 +19,14 @@
   let run = $state<RunDetail | null>(null);
   let error = $state('');
   let tab = $state<'overview' | 'results' | 'files' | 'details'>('overview');
-  let rows = $state<Glance[]>([]);
-  let tableName = $state('');
-  let table = $state<Table | null>(null);
+  /** the summary tables, by file */
+  let tables = $state<Record<string, Table>>({});
+  /** {tool: outputs switched off on the Tools page} */
+  let hidden = $state<Record<string, string[]>>({});
+  /** the picked step's tables, by view */
+  let selTables = $state<Record<string, Table>>({});
+  let selFile = $state('');
+  let selText = $state<string | null>(null);
   let provenance = $state<Record<string, unknown> | null>(null);
   let selected = $state<string | null>(null);
   let confirmStop = $state(false);
@@ -42,19 +48,17 @@
   }
   async function refreshResults() {
     if (!run) return;
+    asked.clear();
+    tables = {};
     const files = (run.files ?? []).map((f) => f.path);
-    rows = await glance(run.id, run.samples, files);
     if (files.includes('pipeline_info/provenance.json')) {
       const t = await fileText(run.id, 'pipeline_info/provenance.json');
       provenance = t ? JSON.parse(t) : null;
     }
-    if (!tableName && summaryFiles.length) showTable(summaryFiles[0]);
   }
-  async function showTable(path: string) {
-    tableName = path;
-    const t = run ? await fileText(run.id, path) : null;
-    table = t ? parseTsv(t, !path.includes('emmtyper')) : null;
-  }
+  get<Tool[]>('/api/tools')
+    .then((t) => (hidden = Object.fromEntries(t.map((x) => [x.id, x.hidden_outputs]))))
+    .catch(() => {});
 
   load();
   const timer = setInterval(() => active && load(), 3000);
@@ -117,8 +121,73 @@
     return total ? Math.round((done / total) * 100) : 0;
   });
 
-  const summaryFiles = $derived((run?.files ?? []).map((f) => f.path).filter((p) => p.startsWith('summary/') && p.endsWith('.tsv')));
   const sel = $derived(run?.plan_steps?.find((s) => s.id === selected) ?? null);
+  const paths = $derived((run?.files ?? []).map((f) => f.path));
+  /** one table per tool: the tables of the steps that write into the run's summary folder */
+  const summaryFiles = $derived.by(() => {
+    const steps = run?.plan_steps ?? [];
+    if (!steps.some((s) => s.publish)) return paths.filter((p) => p.startsWith('summary/') && p.endsWith('.tsv')); // runs of older versions
+    return steps
+      .filter((s) => (s.publish ?? '').startsWith('summary'))
+      .flatMap((s) => stepFiles(s, 'all', paths, hidden[s.tool_id ?? '']))
+      .filter((p) => p.endsWith('.tsv'))
+      .sort((a, b) => a.split('/').length - b.split('/').length); // the main tables first
+  });
+  /** one calm colour per results table, so each tool is easy to find again */
+  const TINTS = ['#0f766e', '#6d28d9', '#b45309', '#1d4ed8', '#be185d', '#15803d', '#0e7490', '#a16207'];
+  const tint = (i: number) => TINTS[i % TINTS.length];
+  const asked = new Set<string>();
+  $effect(() => {
+    const rid = run?.id;
+    if (!rid) return;
+    for (const p of summaryFiles) {
+      if (asked.has(p)) continue;
+      asked.add(p);
+      fileText(rid, p).then((text) => {
+        if (text) tables = { ...tables, [p]: asTable(p, text) };
+      });
+    }
+  });
+
+  // the step picked in the pipeline, and its own output
+  const selViews = $derived(
+    sel && run ? stepViews(sel, run.samples, paths, hidden[sel.tool_id ?? '']) : { tables: [], others: [] },
+  );
+  function pick(sid: string) {
+    selected = selected === sid ? null : sid;
+    selFile = '';
+    selText = null;
+  }
+  // every sample's rows of each output, in one table
+  let loaded = '';
+  $effect(() => {
+    const rid = run?.id;
+    const views = selViews.tables;
+    const key = JSON.stringify(views);
+    if (!rid || key === loaded) return;
+    loaded = key;
+    selTables = {};
+    for (const v of views) {
+      Promise.all(v.files.map(async (f) => ({ ...f, text: (await fileText(rid, f.path)) ?? '' }))).then((parts) => {
+        if (loaded === key) selTables = { ...selTables, [v.key]: combine(parts) };
+      });
+    }
+  });
+  // the step's other files (reports, logs): one at a time
+  async function showFile(path: string) {
+    selFile = path;
+    selText = null;
+    if (!run || fileKind(path) !== 'text') return;
+    const text = await fileText(run.id, path);
+    if (selFile === path && text !== null) selText = text.split('\n').slice(0, 400).join('\n');
+  }
+  $effect(() => {
+    // a step with no tables opens on its report page (else its first text file)
+    const { tables, others } = selViews;
+    if (others.includes(untrack(() => selFile))) return;
+    const first = tables.length ? undefined : (others.find((p) => fileKind(p) === 'page') ?? others.find((p) => fileKind(p) === 'text'));
+    untrack(() => (first ? showFile(first) : ((selFile = ''), (selText = null))));
+  });
 
   // ---------------------------------------------------------------- actions
 
@@ -160,7 +229,6 @@
       busy = false;
     }
   }
-  const fmtPct = (v?: string) => (v ? `${parseFloat(v).toFixed(v.includes('.') ? 1 : 0)}%` : '');
   const tools = $derived(Object.entries((provenance?.tools as Record<string, string>) ?? {}));
   const notes = $derived(Object.entries((provenance?.notes as Record<string, string>) ?? {}));
 </script>
@@ -228,7 +296,7 @@
           <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-[3px] bg-info"></span>Running</span>
           <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-[3px] bg-line-strong"></span>Waiting</span>
           <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-[3px] bg-danger"></span>Failed</span>
-          <span class="ml-auto">One square per sample. Click a step for details.</span>
+          <span class="ml-auto">One square per sample. Click a step to see its output.</span>
         </div>
         <div class="overflow-x-auto pb-1">
           <div class="flex min-w-max items-center">
@@ -236,7 +304,7 @@
               <div class="flex w-[180px] flex-col justify-center gap-2">
                 {#each col as s (s.id)}
                   <button
-                    onclick={() => (selected = selected === s.id ? null : s.id)}
+                    onclick={() => pick(s.id)}
                     class="flex w-[180px] cursor-pointer items-center gap-2 rounded-[10px] bg-surface px-2.5 py-2 text-left text-ink transition-shadow hover:shadow-[0_0_0_3px_var(--brand-soft)]
                       {selected === s.id ? 'border-2 border-brand' : s.runnable ? 'border border-line' : 'border border-dashed border-line-strong opacity-70'}"
                   >
@@ -259,8 +327,12 @@
           </div>
         </div>
         {#if sel}
-          <div class="rounded-xl bg-surface-2 p-4">
-            <div class="mb-2 flex items-center gap-2"><strong>{sel.label}</strong><span class="text-sm text-muted">{sel.tool} {sel.version}</span></div>
+          <div class="flex flex-col gap-3 rounded-xl border border-brand/25 bg-brand-softer p-4 pl-5 shadow-[inset_4px_0_0_var(--brand)]">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="rounded-full bg-brand px-2.5 py-0.5 text-[11px] font-bold tracking-wide text-on-brand uppercase">Selected step</span>
+              <strong class="text-[15px]">{sel.label}</strong><span class="text-sm text-muted">{sel.tool} {sel.version}</span>
+              <Button size="sm" variant="quiet" class="ml-auto" icon="x" label="Close this step" onclick={() => pick(sel.id)} />
+            </div>
             <table class="data">
               <thead><tr><th>Sample</th><th>Status</th><th>Started</th><th>Took</th></tr></thead>
               <tbody>
@@ -269,64 +341,104 @@
                 {/each}
               </tbody>
             </table>
+            <strong class="text-sm">Output{sel.per_sample && run.samples.length > 1 ? ' · all samples' : ''}</strong>
+            {#each selViews.tables as v (v.key)}
+              {@const t = selTables[v.key]}
+              <div class="flex flex-col gap-1.5">
+                <div class="flex flex-wrap items-center gap-2 text-[13px]">
+                  <span class="font-semibold text-ink">{titleOf(v.title)}</span>
+                  {#if v.files.length === 1}
+                    <Button size="sm" variant="quiet" class="ml-auto" icon="download" href={fileUrl(run.id, v.files[0].path, true)}>Download</Button>
+                  {/if}
+                </div>
+                {#if t}
+                  <div class="max-h-[420px] overflow-auto rounded-xl border border-line bg-surface">
+                    <table class="data">
+                      {#if t.header.length}<thead class="sticky top-0"><tr>{#each t.header as h}<th>{h}</th>{/each}</tr></thead>{/if}
+                      <tbody>
+                        {#each t.rows.slice(0, 500) as r}<tr>{#each r as c}<td class="whitespace-nowrap">{c}</td>{/each}</tr>{/each}
+                        {#if !t.rows.length}<tr><td class="text-muted" colspan={Math.max(1, t.header.length)}>Nothing found.</td></tr>{/if}
+                      </tbody>
+                    </table>
+                  </div>
+                {:else}
+                  <p class="m-0 text-[13px] text-muted">Loading…</p>
+                {/if}
+              </div>
+            {/each}
+            {#if selViews.others.length}
+              <div class="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Other files of this step">
+                {#if selViews.tables.length}<span class="mr-1 text-[13px] text-muted">Other files</span>{/if}
+                {#each selViews.others as p}
+                  <button
+                    role="tab"
+                    aria-selected={selFile === p}
+                    class="h-9 cursor-pointer rounded-full border px-3.5 text-[13px] font-semibold {selFile === p ? 'border-brand bg-brand-soft text-brand' : 'border-line bg-surface text-ink-2 hover:bg-hover'}"
+                    onclick={() => showFile(p)}>{p.split('/').pop()}</button
+                  >
+                {/each}
+              </div>
+              {#if selFile}
+                <div class="flex justify-end gap-2">
+                  {#if fileKind(selFile) !== 'other'}<Button size="sm" variant="quiet" href={fileUrl(run.id, selFile)}>Open</Button>{/if}
+                  <Button size="sm" icon="download" href={fileUrl(run.id, selFile, true)}>Download</Button>
+                </div>
+                {#if selText !== null}
+                  <pre class="m-0 max-h-[420px] overflow-auto rounded-xl border border-line bg-surface p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-ink-2">{selText}</pre>
+                {:else if fileKind(selFile) === 'page'}
+                  <iframe src={fileUrl(run.id, selFile)} title={selFile.split('/').pop()} sandbox="allow-scripts" class="h-[520px] w-full rounded-xl border border-line bg-white"></iframe>
+                {:else if fileKind(selFile) === 'other'}
+                  <p class="m-0 text-[13px] text-ink-2">This file can't be shown here: press <strong>Download</strong>.</p>
+                {/if}
+              {/if}
+            {/if}
+            {#if !selViews.tables.length && !selViews.others.length}
+              <p class="m-0 text-[13px] text-muted">
+                {sel.runnable ? 'No output files yet (or they are switched off for this tool on the Tools page).' : 'This step was off.'}
+              </p>
+            {/if}
           </div>
         {/if}
       </section>
     {/if}
 
     {#if tab === 'overview' || tab === 'results'}
-      <section class="card flex flex-col gap-3.5 px-5.5 py-5">
-        <div class="flex flex-wrap items-center gap-2.5">
-          <h2 class="m-0 text-base font-semibold">{active ? 'Results so far' : 'Results'}</h2>
-          <div class="ml-auto flex flex-wrap gap-2">
-            {#each summaryFiles.slice(0, 1) as _}
-              <Button size="sm" icon="download" href={fileUrl(run.id, tableName || summaryFiles[0], true)}>Download table</Button>
-            {/each}
-          </div>
+      <section class="mt-2 flex flex-col gap-3.5">
+        <div class="flex flex-wrap items-center gap-3">
+          <h2 class="m-0 text-lg font-semibold">{active ? 'Results so far' : 'Results'}</h2>
+          <span class="text-[13px] text-muted">One table per tool, every sample together</span>
+          <span class="h-px min-w-10 flex-1 bg-line"></span>
         </div>
-        <div class="overflow-x-auto rounded-xl border border-line">
-          <table class="data min-w-[860px]">
-            <thead><tr><th>Sample</th><th>MLST</th><th>Serovar / emm</th><th>AMR genes (NCBI)</th><th>Complete</th><th>Contamination</th><th>Depth</th></tr></thead>
-            <tbody>
-              {#each rows as g (g.sample)}
-                <tr>
-                  <td class="font-semibold">{g.sample}{#if g.species}<span class="block text-xs font-normal text-muted italic">{g.species}</span>{/if}</td>
-                  <td>{g.st ?? '…'}{#if g.scheme}<span class="block text-xs text-muted">{g.scheme}</span>{/if}</td>
-                  <td>{g.serovar ?? g.emm ?? (active ? '…' : '-')}</td>
-                  <td>
-                    {#if g.amr.length}
-                      <span class="flex flex-wrap gap-1">{#each g.amr as a}<span class="rounded-md bg-surface-2 px-2 py-0.5 text-xs font-semibold">{a}</span>{/each}</span>
-                    {:else}<span class="text-muted">{active ? '…' : 'none found'}</span>{/if}
-                  </td>
-                  <td class={g.completeness && parseFloat(g.completeness) < 95 ? 'font-semibold text-warn' : 'font-semibold text-ok'}>{fmtPct(g.completeness) || '…'}</td>
-                  <td class={g.contamination && parseFloat(g.contamination) > 5 ? 'font-semibold text-danger' : ''}>{fmtPct(g.contamination)}</td>
-                  <td>{g.depth ?? ''}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-        {#if tab === 'results' && summaryFiles.length}
-          <div class="mt-2 flex flex-wrap gap-1.5" role="tablist" aria-label="Summary tables">
-            {#each summaryFiles as f}
-              {@const n = f.split('/').pop()!}
-              <button
-                role="tab"
-                aria-selected={tableName === f}
-                class="h-9 cursor-pointer rounded-full border px-3.5 text-[13px] font-semibold {tableName === f ? 'border-brand bg-brand-soft text-brand' : 'border-line bg-surface text-ink-2 hover:bg-hover'}"
-                onclick={() => showTable(f)}>{TABLE_TITLES[n] ?? n}</button
+        {#each summaryFiles as p, i (p)}
+          <div class="card flex flex-col gap-3 px-5.5 py-4.5" style="border-left: 4px solid {tint(i)}">
+            <div class="flex flex-wrap items-center gap-2.5">
+              <h3
+                class="m-0 rounded-full px-3 py-1 text-[14px] font-semibold"
+                style="color: {tint(i)}; background: color-mix(in srgb, {tint(i)} 11%, transparent)"
               >
-            {/each}
-          </div>
-          {#if table}
-            <div class="max-h-[460px] overflow-auto rounded-xl border border-line">
-              <table class="data">
-                {#if table.header.length}<thead class="sticky top-0"><tr>{#each table.header as h}<th>{h}</th>{/each}</tr></thead>{/if}
-                <tbody>{#each table.rows.slice(0, 500) as r}<tr>{#each r as c}<td class="whitespace-nowrap">{c}</td>{/each}</tr>{/each}</tbody>
-              </table>
+                {titleOf(p)}
+              </h3>
+              <span class="text-xs text-muted">{p}</span>
+              <Button size="sm" class="ml-auto" icon="download" href={fileUrl(run.id, p, true)}>Download</Button>
             </div>
-          {/if}
-        {/if}
+            {#if tables[p]}
+              <div class="max-h-[380px] overflow-auto rounded-xl border border-line">
+                <table class="data">
+                  {#if tables[p].header.length}<thead class="sticky top-0"><tr>{#each tables[p].header as h}<th>{h}</th>{/each}</tr></thead>{/if}
+                  <tbody>{#each tables[p].rows.slice(0, 500) as r}<tr>{#each r as c}<td class="whitespace-nowrap">{c}</td>{/each}</tr>{/each}</tbody>
+                </table>
+              </div>
+            {:else}
+              <p class="m-0 text-[13px] text-muted">Loading…</p>
+            {/if}
+          </div>
+        {:else}
+          <p class="card m-0 px-5.5 py-4.5 text-sm text-muted">
+            {active
+              ? 'Each tool gets its own table here when the run finishes. Until then, click a step in the pipeline to see its output.'
+              : 'No summary tables in this run. Click a step in the pipeline to see its output.'}
+          </p>
+        {/each}
       </section>
     {/if}
 

@@ -15,7 +15,7 @@ use crate::backend::Backend;
 use crate::executor::{Outcome, RunSpec};
 
 pub const PIPELINE_NAME: &str = "Genomics Workflow Microbials";
-pub const REPRODUCES: &str = "Galaxy Australia: Genomic Assembly and analysis - RDH version 5.2";
+pub const REPRODUCES: &str = "Galaxy Australia: Genomic Assembly and analysis - RDH version 6";
 
 /// About the run, from whoever started it.
 #[derive(Debug, Clone)]

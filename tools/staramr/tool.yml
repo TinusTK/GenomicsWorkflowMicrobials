@@ -98,6 +98,25 @@ versions:
   staramr_plasmidfinder_db: staramr db info 2>/dev/null | awk -F'= ' '/^plasmidfinder_db_commit/{c=$2} /^plasmidfinder_db_date/{d=$2} END{print c" ("d")"}'
   staramr_pointfinder_db: staramr db info 2>/dev/null | awk -F'= ' '/^pointfinder_db_commit/{c=$2} /^pointfinder_db_date/{d=$2} END{print c" ("d")"}'
 
+galaxy:
+  tool: nml/staramr/staramr_search
+  inputs: {genomes: contigs}
+  outputs: {excel: excel, summary: summary, detailed_summary: detailed_summary, resfinder: tables, plasmidfinder: tables, mlst: tables, settings: tables}
+  settings:
+    pid_threshold: advanced.pid_threshold
+    plength_resfinder: advanced.plength_resfinder
+    plength_pointfinder: advanced.plength_pointfinder
+    plength_plasmidfinder: advanced.plength_plasmidfinder
+    pointfinder_organism: {from: pointfinder_db.use_pointfinder, map: {disabled: ""}}
+    mlst_scheme: advanced.mlst_scheme
+    genome_size_lower_bound: advanced.genome_size_lower_bound
+    genome_size_upper_bound: advanced.genome_size_upper_bound
+    minimum_n50_value: advanced.minimum_N50_value
+    minimum_contig_length: advanced.minimum_contig_length
+    unacceptable_number_contigs: advanced.unacceptable_number_contigs
+    report_all_blast: advanced.report_all_blast
+    exclude_negatives: advanced.exclude_negatives
+
 command: |
   mkdir -p genomes
   for f in "$IN_contigs_DIR"/*; do

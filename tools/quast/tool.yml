@@ -35,6 +35,14 @@ settings:
 
 version_command: quast.py --version 2>&1 | grep -o 'QUAST v[0-9.]*' | sed 's/QUAST v//'
 
+galaxy:
+  tool: iuc/quast/quast
+  inputs: {"mode|in|inputs": contigs}
+  outputs: {report_tabular: report, report_html: html}
+  settings:
+    min_contig: min_contig
+    contig_thresholds: advanced.contig_thresholds
+
 command: |
   files=(); labels=()
   for f in "$IN_contigs_DIR"/*; do

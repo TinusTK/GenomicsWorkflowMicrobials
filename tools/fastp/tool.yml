@@ -28,6 +28,11 @@ settings: {}
 
 version_command: fastp --version 2>&1 | sed 's/^fastp //'
 
+galaxy:
+  tool: iuc/fastp/fastp
+  inputs: {"single_paired|paired_input": reads}
+  outputs: {output_paired_coll: reads, report_html: html, report_json: json}
+
 command: |
   mkdir -p trimmed
   fastp \

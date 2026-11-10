@@ -29,6 +29,13 @@ settings:
 
 version_command: mlst --version 2>&1 | sed 's/^mlst //'
 
+galaxy:
+  tool: iuc/mlst/mlst
+  inputs: {input_files: contigs}
+  outputs: {report: report}
+  settings:
+    scheme: settings.scheme
+
 command: |
   args=()
   [ -n "$S_scheme" ] && args+=(--scheme "$S_scheme")

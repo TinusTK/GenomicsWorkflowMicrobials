@@ -35,6 +35,11 @@ settings:
 
 version_command: emmtyper --version 2>&1 | sed 's/^emmtyper v//'
 
+galaxy:
+  tool: maxlcummins/emmtyper/emmtyper
+  inputs: {input1: contigs}
+  outputs: {output1: report}
+
 command: |
   cp -L "$IN_contigs" "$SAMPLE.fasta"
   emmtyper -w "$S_workflow" --cluster-distance "$S_cluster_distance" -f short \

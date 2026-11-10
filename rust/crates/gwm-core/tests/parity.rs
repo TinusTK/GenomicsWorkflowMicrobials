@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use gwm_core::{compiler, Catalog};
+use gwm_core::{compiler, Catalog, Workflow};
 use serde_json::Value;
 
 fn repo_root() -> PathBuf {
@@ -21,6 +21,13 @@ fn catalog() -> Catalog {
     Catalog::new(repo_root(), home)
 }
 
+/// The v1 default workflow (built in up to 2.0.0-rc.1), kept for the parity fixtures.
+fn rdh_v5_2() -> Workflow {
+    let text = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/workflows/rdh_v5_2.yml"))
+        .unwrap();
+    serde_yaml::from_str(&text).unwrap()
+}
+
 #[test]
 fn rdh_v5_2_matches_python() {
     let fixture: Value = serde_json::from_str(
@@ -29,7 +36,7 @@ fn rdh_v5_2_matches_python() {
     .unwrap();
     let cat = catalog();
     let tools = cat.load_tools().unwrap();
-    let wf = cat.load_workflow("rdh_v5_2", None).unwrap();
+    let wf = rdh_v5_2();
 
     let resolved = compiler::resolve(&wf, &tools).unwrap();
     let order: Vec<&str> = resolved.iter().map(|r| r.id.as_str()).collect();
@@ -51,23 +58,27 @@ fn rdh_v5_2_matches_python() {
 }
 
 #[test]
-fn plus_needs_its_packs() {
+fn rdh_v6_is_built_in_and_runs() {
     let cat = catalog();
     let tools = cat.load_tools().unwrap();
-    let wf = cat.load_workflow("rdh_v5_2_plus", None).unwrap();
-    assert_eq!(wf.steps.len(), 19, "extends: parent steps + own");
-    let e = compiler::resolve(&wf, &tools).unwrap_err();
-    assert_eq!(
-        e.to_string(),
-        "step shigella_mykrobe: tool 'shigella_mykrobe' is not installed"
+    let wf = cat.load_workflow("rdh_v6", None).unwrap();
+    assert!(wf.builtin);
+    assert_eq!(wf.steps.len(), 17);
+    let plan = compiler::plan(&wf, &tools, &cat.load_databases().unwrap()).unwrap();
+    assert!(
+        plan.steps.iter().all(|s| s.runnable),
+        "every step of the default workflow runs"
     );
+    let shig = plan.steps.iter().find(|s| s.id == "shigella_typing").unwrap();
+    assert_eq!(shig.tool_version, "1.0.2");
+    assert_eq!(shig.publish, "summary/shigella");
 }
 
 #[test]
 fn step_off_skips_dependents() {
     let cat = catalog();
     let tools = cat.load_tools().unwrap();
-    let mut wf = cat.load_workflow("rdh_v5_2", None).unwrap();
+    let mut wf = rdh_v5_2();
     wf.steps.get_mut("kraken2").unwrap().enabled = Some(false);
     let run = compiler::runnable(&wf, &tools).unwrap();
     assert!(!run["kraken2"]);
@@ -79,7 +90,7 @@ fn step_off_skips_dependents() {
 fn loops_are_refused() {
     let cat = catalog();
     let tools = cat.load_tools().unwrap();
-    let mut wf = cat.load_workflow("rdh_v5_2", None).unwrap();
+    let mut wf = rdh_v5_2();
     wf.steps
         .get_mut("fastp")
         .unwrap()

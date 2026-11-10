@@ -1,0 +1,76 @@
+id: cdiphtheriae_typing
+name: C. diphtheriae typing
+version: 1.0.0
+category: Typing
+description: >-
+  tox gene detection, tox allele and 7-gene MLST for Corynebacterium
+  diphtheriae assemblies against the bundled BIGSdb-Pasteur database, with the
+  database version recorded on every result. Detection of the tox gene does
+  not prove toxin production: confirm toxigenicity (e.g. Elek test).
+homepage: https://github.com/TinusTK/corynebacterium-diphtheriae-typing
+license: MIT
+citation: "Bolt F et al. (2010) J Clin Microbiol 48:4177-4185 (MLST); BIGSdb-Pasteur."
+container: ghcr.io/tinustk/gwm-cdiphtheriae-typing:1.0.0-galaxy2
+scope: all_samples
+resources: {cpus: 4, memory_gb: 2}
+requirements: {memory_gb: 1}
+
+inputs:
+  contigs: {type: fasta, description: Assembled contigs of every sample.}
+
+outputs:
+  report: {type: tsv, path: out/cdiphtheriae_typing.tsv, description: "tox gene, tox allele, ST and profile per sample."}
+
+settings:
+  tox_min_identity:
+    label: tox minimum identity (%)
+    type: number
+    default: 99.0
+    description: Identity needed to call a novel tox allele (80-100).
+  tox_min_coverage:
+    label: tox minimum coverage (%)
+    type: number
+    default: 95.0
+    description: Coverage of the tox allele needed to call it (30-100).
+  mlst_min_identity:
+    label: MLST minimum identity (%)
+    type: number
+    default: 95.0
+    description: Identity needed for a novel MLST allele call (80-100).
+  mlst_min_coverage:
+    label: MLST minimum coverage (%)
+    type: number
+    default: 95.0
+    description: Coverage needed for a novel MLST allele call (30-100).
+
+versions:
+  cdiphtheriae_typing: python /opt/cdiphtheriae_typing/diphtheria_typing.py --version 2>&1 | awk '{print $NF}'
+  cdiphtheriae_db: grep -v '^#' /opt/cdiphtheriae_typing/database/VERSION.txt | head -1
+  blast: |-
+    blastn -version 2>&1 | head -1 | sed 's/^blastn: //'
+
+galaxy:
+  tool: tinustk/cdiphtheriae_typing/cdiphtheriae_typing
+  inputs: {input: contigs}
+  outputs: {output: report}
+  settings:
+    tox_min_identity: adv.tox_min_identity
+    tox_min_coverage: adv.tox_min_coverage
+    mlst_min_identity: adv.mlst_min_identity
+    mlst_min_coverage: adv.mlst_min_coverage
+  step: {publish: summary/cdiphtheriae}
+
+command: |
+  args=()
+  for f in "$IN_contigs_DIR"/*; do
+      n=$(basename "$f"); n=${n%.contigs.fa}
+      args+=(--input "$f" --name "$n")
+  done
+  python /opt/cdiphtheriae_typing/diphtheria_typing.py "${args[@]}" \
+      --db /opt/cdiphtheriae_typing/database \
+      --tox-min-identity "$S_tox_min_identity" \
+      --tox-min-coverage "$S_tox_min_coverage" \
+      --mlst-min-identity "$S_mlst_min_identity" \
+      --mlst-min-coverage "$S_mlst_min_coverage" \
+      --threads "$CPUS" \
+      --output out/cdiphtheriae_typing.tsv

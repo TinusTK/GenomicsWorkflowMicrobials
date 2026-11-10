@@ -236,6 +236,14 @@ pub fn plan(
     let mut steps = Vec::new();
     for r in &resolved {
         let (tool, step) = (r.tool, r.step);
+        if tool.extra.get("draft").and_then(Value::as_bool) == Some(true) {
+            return err(format!(
+                "step {}: {} was imported from Galaxy and has no command yet (write it in {})",
+                r.id,
+                tool.name,
+                tool.dir.join("tool.yml").display()
+            ));
+        }
         for d in &tool.databases {
             let Some(db) = databases.get(d) else {
                 return err(format!("step {}: database '{d}' is not in databases/catalog.yml", r.id));

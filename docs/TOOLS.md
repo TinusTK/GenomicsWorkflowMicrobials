@@ -129,3 +129,48 @@ each tool and shown in the UI.
 
 Each computer can change it per pack on the Tools page (saved in
 `~/.ntg/pack_updates.json`).
+
+## Importing a Galaxy workflow
+
+**Workflows › Import from Galaxy** (v2 app) reads a workflow file saved from
+Galaxy (`.ga`) and makes a workflow here with the same tools, versions,
+settings and wiring. It shows what each Galaxy step becomes before anything
+is added:
+
+- **In the app**: a tool here at the same version.
+- **New version**: a tool here at another version. That version is added beside
+  the default one in `~/.gwm/tool_versions/<tool>/<version>/` with the matching
+  BioContainers image, and the step pins it with `tool_version`.
+- **New tool**: a tool the app does not know. A draft goes in
+  `~/.gwm/tools/galaxy_import/<tool>/tool.yml` with its pinned container,
+  inputs, outputs and settings. A `.ga` file has no command lines, so the
+  `command:` has to be written by hand; remove `draft: true` when it is.
+- **Summary tables**: Galaxy text and collection steps (cut, join, collapse ...)
+  that the `summary` tool covers.
+- **Left out**: nothing here matches.
+
+A tool is matched through the `galaxy:` block of its `tool.yml`:
+
+```yaml
+galaxy:
+  tool: iuc/shovill/shovill            # Tool Shed owner/repository/tool id
+  inputs: {"library|input1": reads}    # Galaxy input name -> this tool's input
+  outputs: {contigs: contigs, shovill_std_log: log}
+  settings:                            # this tool's setting <- place in Galaxy's tool_state
+    depth: adv.depth
+    nocorr: {from: adv.keep_files.nocorr, map: {no_correction: true}, default: false}
+    raw: {from: raw_outputs, has: summary}   # true when Galaxy's list holds the value
+  any_version: true                    # optional: stands in for every Galaxy version
+  step: {publish: summary/shigella}    # optional: added to every imported step
+```
+
+`rust/crates/gwm-core/src/galaxy.rs` has the full format; its tests check that
+importing the RDH `.ga` files in `reference/` gives the built-in workflow.
+
+## Tool containers built by this repository
+
+Tools with no BioContainers image (Shigella typing, C. diphtheriae typing) get
+theirs from `containers/<name>/Dockerfile`, built and published by
+`.github/workflows/containers.yml` as `ghcr.io/tinustk/gwm-<name>:<version>`.
+A published version is never built over: change the version in the workflow
+file and in the tool's `tool.yml` together.

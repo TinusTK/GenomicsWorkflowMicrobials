@@ -107,6 +107,22 @@ versions:
   shovill: shovill --version 2>&1 | sed 's/^shovill //'
   spades: spades.py --version 2>&1 | sed 's/^SPAdes genome assembler v//; s/^SPAdes v//'
 
+galaxy:
+  tool: iuc/shovill/shovill
+  inputs: {"library|input1": reads}
+  outputs: {contigs: contigs, shovill_std_log: log}
+  settings:
+    assembler: assembler_type.assembler
+    depth: adv.depth
+    gsize: adv.gsize
+    minlen: adv.minlen
+    mincov: adv.mincov
+    namefmt: adv.namefmt
+    kmers: adv.kmers
+    opts: adv.opts
+    trim: trim
+    nocorr: {from: adv.keep_files.nocorr, map: {no_correction: true}, default: false}
+
 command: |
   args=()
   [ -n "$S_gsize" ] && args+=(--gsize "$S_gsize")

@@ -31,7 +31,7 @@ The original Galaxy workflow is in [`reference/`](reference/).
 | Summary tables | built-in | Galaxy's output tables, made the same way |
 
 Settings match the Galaxy workflow; see
-[`workflows/rdh_v5_2/workflow.yml`](workflows/rdh_v5_2/workflow.yml). Where
+[`workflows/rdh_v6/workflow.yml`](workflows/rdh_v6/workflow.yml). Where
 this pipeline has to differ from Galaxy, the UI shows it next to the setting:
 
 - **Kraken2 database:** Standard-8 (2026-06) instead of Galaxy's full
@@ -39,9 +39,11 @@ this pipeline has to differ from Galaxy, the UI shows it next to the setting:
 - **CheckM tree:** "Auto" uses the reduced tree on computers with less than
   40 GB RAM (Galaxy used the full tree).
 
-Extra tools come as **tool packs** from other git repositories (see below), for
-example Shigella typing and *C. diphtheriae* tox/MLST typing; the built-in
-workflow "RDH v5.2 + Shigella + C. diphtheriae typing" adds them.
+The built-in workflow is now **RDH version 6**: version 5.2 plus Shigella typing
+(ShigaPass and Mykrobe) and *C. diphtheriae* tox/MLST typing, which are built-in
+tools with their own published containers. In the v2 app, **Workflows › Import
+from Galaxy** turns any Galaxy workflow file (.ga) into a workflow here
+(see [docs/TOOLS.md](docs/TOOLS.md)).
 
 ## Requirements
 
@@ -208,7 +210,7 @@ In the UI:
 From the command line:
 
 ```bash
-./ntg run rdh_v5_2 /path/to/reads     # run a workflow
+./ntg run rdh_v6 /path/to/reads       # run a workflow
 ./ntg db list                         # databases
 ./ntg db install kraken2_standard_8
 ./ntg tools packs                     # available tool packs

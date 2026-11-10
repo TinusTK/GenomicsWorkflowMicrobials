@@ -44,6 +44,16 @@ settings:
 
 version_command: sistr --version 2>&1 | sed 's/^sistr_cmd //'
 
+galaxy:
+  tool: nml/sistr_cmd/sistr_cmd
+  inputs: {input_fastas: contigs}
+  outputs: {output_prediction_tab: prediction}
+  settings:
+    qc: qc
+    run_mash: run_mash
+    no_cgmlst: no_cgmlst
+    use_full_cgmlst_db: use_full_cgmlst_db
+
 command: |
   args=()
   [ "$S_qc" = true ] && args+=(--qc)

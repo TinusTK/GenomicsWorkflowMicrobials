@@ -51,6 +51,22 @@ settings:
 
 version_command: checkm 2>&1 | grep -o 'CheckM v[0-9.]*' | sed 's/CheckM v//'
 
+galaxy:
+  tool: iuc/checkm_lineage_wf/checkm_lineage_wf
+  inputs: {"bins|bins_coll": contigs}
+  outputs: {results: results}
+  settings:
+    tree:
+      from: tree_analyze.reduced_tree
+      map:
+        true: reduced
+        false:
+          value: auto
+          galaxy: full
+          note: Galaxy used the full tree. "auto" uses the reduced tree on computers with less than 40 GB RAM.
+    unique: lineage_set.unique
+    multi: lineage_set.multi
+
 command: |
   mkdir -p bins
   for f in "$IN_contigs_DIR"/*; do

@@ -539,6 +539,7 @@ pub fn detail(cat: &Catalog, run_id: &str) -> Result<Value> {
                             "id": s["id"], "label": s["label"], "tool": s["tool_name"], "version": s["tool_version"],
                             "per_sample": s["per_sample"], "enabled": s["enabled"], "runnable": s["runnable"],
                             "inputs": sources,
+                            "tool_id": s["tool_id"], "publish": s["publish"], "outputs": s["outputs"],
                         })
                     })
                     .collect()

@@ -1,0 +1,89 @@
+id: shigella_typing
+name: ShigaPass typing
+version: 1.0.2
+category: Typing
+description: >-
+  Shigella / EIEC species and serotype from the assemblies (ShigaPass), plus
+  Mykrobe genotyping and QRDR mutations for S. sonnei and S. flexneri from the
+  reads, joined in one combined report with cross-check warnings. Samples that
+  are not Shigella are reported as such. QRDR calls are genotypic markers, not
+  a replacement for susceptibility testing.
+homepage: https://github.com/TinusTK/shigella-typing
+license: GPL-3.0
+citation: "Yassine I et al. (2023) Microb Genom 9:000961 (ShigaPass); Hunt M et al. (2019) Wellcome Open Res 4:191 (Mykrobe); Hawkey J et al. (2021) Nat Commun 12:2684 (Sonneityping)."
+container: ghcr.io/tinustk/gwm-shigella-typing:1.0.2
+scope: all_samples
+resources: {cpus: 4, memory_gb: 4}
+requirements: {memory_gb: 2}
+
+inputs:
+  contigs: {type: fasta, description: Assembled contigs of every sample.}
+  reads: {type: reads, optional: true, description: Paired reads of every sample (for Mykrobe).}
+
+outputs:
+  combined: {type: tsv, path: out/shigella_typing_report.tsv, optional: true, description: Combined ShigaPass and Mykrobe report (when Mykrobe runs).}
+  report: {type: tsv, path: out/shigapass_report.tsv, description: ShigaPass serotype per sample.}
+  mykrobe_report: {type: tsv, path: out/mykrobe_report.tsv, optional: true, description: "Mykrobe genotype, lineage and QRDR calls."}
+  raw: {type: csv, path: "out/ShigaPass_*.csv", optional: true, description: ShigaPass's own summary files.}
+
+settings:
+  mykrobe:
+    label: Also run Mykrobe genotyping
+    type: boolean
+    default: true
+    description: >-
+      Adds Mykrobe genotyping and QRDR calls from the reads and writes the
+      combined report. Needs the reads input.
+  raw_summary:
+    label: Keep ShigaPass_summary.csv
+    type: boolean
+    default: false
+    description: Also keep ShigaPass's own summary file.
+  raw_flex_summary:
+    label: Keep ShigaPass_Flex_summary.csv
+    type: boolean
+    default: false
+    description: Also keep ShigaPass's own S. flexneri summary file.
+
+versions:
+  shigella_typing: python -m shigella_typing.cli --version 2>&1 | awk '{print $NF}'
+  shigapass: ShigaPass.sh -v 2>&1 | grep -o '[0-9][0-9.]*' | head -1
+  mykrobe: mykrobe --version 2>&1 | tail -1
+  blast: |-
+    blastn -version 2>&1 | head -1 | sed 's/^blastn: //'
+
+galaxy:
+  tool: tinustk/shigella_typing/shigapass_typing
+  inputs: {assemblies: contigs, "mykrobe|reads|input": reads}
+  outputs: {combined: combined, report: report, mykrobe_report: mykrobe_report, summary: raw, flex_summary: raw}
+  settings:
+    mykrobe: {from: mykrobe.run, map: {"yes": true, "no": false}}
+    raw_summary: {from: raw_outputs, has: summary}
+    raw_flex_summary: {from: raw_outputs, has: flex_summary}
+  step: {publish: summary/shigella}
+
+command: |
+  export HOME="$PWD"
+  files=(); names=()
+  printf 'sample\tr1\tr2\n' > reads.tsv
+  for f in "$IN_contigs_DIR"/*; do
+      n=$(basename "$f"); n=${n%.contigs.fa}
+      files+=("$f"); names+=("$n")
+      if [ -n "${IN_reads_DIR:-}" ]; then
+          r1=$(ls "$IN_reads_DIR/$n"_R1* 2>/dev/null | head -1 || true)
+          r2=$(ls "$IN_reads_DIR/$n"_R2* 2>/dev/null | head -1 || true)
+          [ -n "$r1" ] && printf '%s\t%s\t%s\n' "$n" "$r1" "$r2" >> reads.tsv
+      fi
+  done
+  args=(); raw=()
+  [ "$S_raw_summary" = true ] && raw+=(summary)
+  [ "$S_raw_flex_summary" = true ] && raw+=(flex_summary)
+  if [ "$S_mykrobe" = true ] && [ "$(wc -l < reads.tsv)" -gt 1 ]; then
+      args+=(--with-mykrobe --reads-samplesheet reads.tsv --panels-dir "$SHIGELLA_PANELS")
+  fi
+  [ "${#raw[@]}" -gt 0 ] && args+=(--raw-outputs "${raw[@]}")
+  python -m shigella_typing.cli shigapass \
+      --assembly "${files[@]}" --name "${names[@]}" \
+      --threads "$CPUS" "${args[@]}" --outdir shigella_out
+  cp shigella_out/*.tsv out/
+  cp shigella_out/ShigaPass_*.csv out/ 2>/dev/null || true

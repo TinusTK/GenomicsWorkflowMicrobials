@@ -43,6 +43,14 @@ versions:
   bracken: bracken -v 2>&1 | sed 's/^Bracken v//'
   bracken_package: echo 3.0
 
+galaxy:
+  tool: iuc/bracken/est_abundance
+  inputs: {input: report}
+  outputs: {report: abundance, kraken_report: report}
+  settings:
+    level: level
+    threshold: threshold
+
 command: |
   bracken \
       -d "$DB_kraken2_standard_8" \

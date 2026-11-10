@@ -3,9 +3,9 @@ name: Rust
 
 on:
   push:
-    paths: ["rust/**", "tools/**", "workflows/**", "databases/**", ".github/workflows/rust.yml"]
+    paths: ["rust/**", "tools/**", "workflows/**", "databases/**", "reference/**", ".github/workflows/rust.yml"]
   pull_request:
-    paths: ["rust/**", "tools/**", "workflows/**", "databases/**", ".github/workflows/rust.yml"]
+    paths: ["rust/**", "tools/**", "workflows/**", "databases/**", "reference/**", ".github/workflows/rust.yml"]
 
 jobs:
   test:

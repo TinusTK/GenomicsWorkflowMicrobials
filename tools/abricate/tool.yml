@@ -47,6 +47,16 @@ versions:
   abricate: abricate --version 2>&1 | sed 's/^abricate //'
   abricate_db_dates: abricate --list 2>/dev/null | awk 'NR>1{printf "%s%s=%s", s, $1, $4; s=", "} END{print ""}'
 
+galaxy:
+  tool: iuc/abricate/abricate
+  inputs: {file_input: contigs}
+  outputs: {report: report}
+  settings:
+    db: adv.db
+    minid: adv.min_dna_id
+    mincov: adv.min_cov
+    noheader: adv.no_header
+
 command: |
   cp -L "$IN_contigs" "$SAMPLE.fasta"
   args=()

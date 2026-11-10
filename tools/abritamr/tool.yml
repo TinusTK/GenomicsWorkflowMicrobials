@@ -41,6 +41,14 @@ versions:
   amrfinderplus: amrfinder --version 2>&1 | tail -1
   amrfinderplus_db: python -c "import abritamr,os;p=os.path.join(os.path.dirname(abritamr.__file__),'db','amrfinderplus','data');print(sorted(d for d in os.listdir(p) if d[0].isdigit())[-1])"
 
+galaxy:
+  tool: iuc/abritamr/abritamr
+  inputs: {contig: contigs}
+  outputs: {abriTAMR_output: matches, virulence_summary: virulence}
+  settings:
+    species: species
+    identity: identity
+
 command: |
   args=()
   [ -n "$S_species" ] && args+=(--species "$S_species")

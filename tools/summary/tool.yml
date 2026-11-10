@@ -3,7 +3,7 @@ name: RDH summary tables
 version: "1.0"
 category: Reports
 description: >-
-  Builds the combined tables the Galaxy RDH v5.2 workflow outputs (MLST,
+  Builds the combined tables the Galaxy RDH workflows output (MLST,
   SISTR, ABRicate, QUAST, emmtyper, CheckM + depth, Bracken), the same way
   Galaxy's text steps do. Any table whose tool is switched off is skipped.
 license: MIT
@@ -30,6 +30,32 @@ outputs:
 settings: {}
 
 version_command: python3 --version 2>&1 | sed 's/^Python //'
+
+galaxy:
+  # Galaxy's text and collection steps this tool stands in for: every tool that
+  # is part of Galaxy itself (Cut, Join, Concatenate ...) and these Tool Shed ones
+  folds:
+    - bgruening/text_processing
+    - bgruening/add_line_to_file
+    - iuc/collection_element_identifiers
+    - iuc/datamash_transpose
+    - nml/collapse_collections
+    - artbio/concatenate_multiple_datasets
+    - mvdbeek/concatenate_multiple_datasets
+    - mvdbeek/add_input_name_as_column
+    - galaxyp/regex_find_replace
+  # which step's output feeds each input, when Galaxy passes it through text steps
+  sources:
+    mlst: {tool: mlst, output: report}
+    sistr: {tool: sistr, output: prediction}
+    abricate_bac: {tool: abricate, output: report, settings: {noheader: false}}
+    abricate_cdip: {tool: abricate, output: report, settings: {noheader: true}}
+    quast: {tool: quast, output: report}
+    emmtyper: {tool: emmtyper, output: report}
+    checkm: {tool: checkm, output: results}
+    shovill_log: {tool: shovill, output: log}
+    bracken: {tool: bracken, output: abundance}
+  step: {publish: summary}
 
 command: |
   python3 "$TOOL_DIR/summarise.py" --in-dir . --out-dir out

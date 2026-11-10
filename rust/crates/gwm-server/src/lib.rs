@@ -3,6 +3,7 @@
 //! window or restarting the app never stops a run.
 
 pub mod hardware;
+pub mod import;
 pub mod jobs;
 
 use std::fs;
@@ -17,7 +18,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use gwm_core::paths::native_path;
 use gwm_core::reads::{find_samples, natural_cmp, pairing_problems, Pairing};
-use gwm_core::{compiler, Catalog, Workflow};
+use gwm_core::{compiler, galaxy, Catalog, Workflow};
 use gwm_engine::runs::{self, StartOptions};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -90,8 +91,10 @@ pub async fn serve(addr: SocketAddr, cat: Catalog, gui: Option<PathBuf>) -> anyh
         .route("/api/workflows", get(list_workflows))
         .route("/api/workflows/save", post(save_workflow))
         .route("/api/workflows/check", post(check_workflow))
+        .route("/api/workflows/import", post(import_workflow))
         .route("/api/workflows/{id}", get(get_workflow).delete(delete_workflow))
         .route("/api/tools", get(list_tools))
+        .route("/api/tools/{id}/outputs", post(set_tool_outputs))
         .route("/api/databases", get(list_databases))
         .route("/api/databases/{id}/install", post(install_database))
         .route("/api/jobs/{id}", get(get_job))
@@ -230,20 +233,71 @@ async fn check_workflow(State(a): State<App>, Json(b): Json<CheckReq>) -> Api {
     ok(json!({"warnings": warns, "pairing": found, "runnable": runnable}))
 }
 
+#[derive(Deserialize)]
+struct ImportReq {
+    /// the text of a Galaxy workflow (.ga) file
+    ga: String,
+    /// false: only say what the import would do
+    #[serde(default)]
+    apply: bool,
+}
+
+/// Import a Galaxy workflow: first the list of what each step becomes, then
+/// (with `apply`) add the tool versions and tools it needs and save it.
+async fn import_workflow(State(a): State<App>, Json(b): Json<ImportReq>) -> Api {
+    let cat = a.cat.clone();
+    let out = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
+        let tools = cat.load_tools()?;
+        let builtin: Vec<String> = cat.builtin_workflows()?.into_iter().map(|w| w.id).collect();
+        let taken = |id: &str| builtin.iter().any(|b| b == id) || !cat.user_workflow_versions(id).is_empty();
+        let imp = galaxy::analyze(&b.ga, &tools, &taken)?;
+        if !b.apply {
+            return Ok(json!({
+                "id": imp.workflow.id, "name": imp.workflow.name, "steps": imp.steps,
+                "new_versions": imp.new_versions,
+                "new_tools": imp.new_tools.iter().map(|t| &t.id).collect::<Vec<_>>(),
+            }));
+        }
+        let name = imp.workflow.name.clone();
+        let done = galaxy::apply(&cat, imp, &import::Online)?;
+        Ok(json!({"id": done.id, "name": name, "version": done.version, "steps": done.steps}))
+    })
+    .await??;
+    ok(out)
+}
+
 // ---------------------------------------------------------------- tools and databases
 
 async fn list_tools(State(a): State<App>) -> Api {
     let tools = a.cat.load_tools()?;
+    let hidden = import::hidden_outputs(&a.cat);
     let out: Vec<Value> = tools
         .values()
         .map(|t| {
             let mut v = serde_json::to_value(t).unwrap_or_default();
             v["source"] = json!(t.source);
             v["variants"] = json!(t.variants.keys().collect::<Vec<_>>());
+            v["folder"] = json!(t.dir);
+            v["hidden_outputs"] = json!(hidden.get(&t.id).cloned().unwrap_or_default());
             v
         })
         .collect();
     ok(out)
+}
+
+#[derive(Deserialize)]
+struct OutputsReq {
+    /// outputs not shown on the Run page
+    hidden: Vec<String>,
+}
+
+/// Which of a tool's outputs the Run page shows (all of them unless switched off).
+async fn set_tool_outputs(State(a): State<App>, UrlPath(id): UrlPath<String>, Json(b): Json<OutputsReq>) -> Api {
+    let tools = a.cat.load_tools()?;
+    let tool = tools.get(&id).ok_or_else(|| anyhow::anyhow!("unknown tool {id}"))?;
+    let hidden: Vec<String> = b.hidden.into_iter().filter(|o| tool.outputs.contains_key(o)).collect();
+    import::set_hidden_outputs(&a.cat, &id, hidden.clone())?;
+    ok(json!({"hidden_outputs": hidden}))
 }
 
 async fn list_databases(State(a): State<App>) -> Api {
