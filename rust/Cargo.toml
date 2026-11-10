@@ -1,0 +1,23 @@
+# NTG Genomics Pipeline v2: the Rust app (see rust/README.md).
+# The Python app in app/ stays until this one passes the same test runs.
+[workspace]
+resolver = "2"
+members = ["crates/ntg-core", "crates/ntg-cli"]
+
+[workspace.package]
+version = "2.0.0-dev"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/TinusTK/NTGPathologyGenomicsWorkflowPipeline"
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+indexmap = { version = "2", features = ["serde"] }
+regex = "1"
+dirs = "6"
+clap = { version = "4", features = ["derive"] }
+ntg-core = { path = "crates/ntg-core" }

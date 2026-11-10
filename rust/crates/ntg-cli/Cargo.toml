@@ -1,0 +1,16 @@
+[package]
+name = "ntg-cli"
+description = "ntg command line: compile workflows, list tools and databases"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "ntg"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+ntg-core.workspace = true

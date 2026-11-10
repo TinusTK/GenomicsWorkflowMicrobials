@@ -19,3 +19,6 @@ fastq/
 *.fastq.gz
 *.fq.gz
 *.fastqsanger.gz
+
+# Rust build output
+rust/target/
