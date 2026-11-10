@@ -67,6 +67,40 @@
     }
   }
 
+  // ---------------------------------------------------------------- memory for the tools
+  // 4 GB stay for the computer, the rest is for the tools; changed here, not in a file
+  interface MemoryInfo {
+    platform: string;
+    total_gb: number;
+    default_gb: number;
+    /** what WSL (Windows) or Colima (Mac) is set to; nothing on Linux or when not set */
+    current_gb: number | null;
+  }
+  let mem = $state<MemoryInfo | null>(null);
+  let memChoice = $state(0);
+  let memBusy = $state(false);
+  async function loadMemory() {
+    if (!isDesktop()) return;
+    mem = await invoke<MemoryInfo>('memory_info').catch(() => null);
+    if (mem) memChoice = mem.current_gb ?? mem.default_gb;
+  }
+  loadMemory();
+  /** A number of GB, or null for the default (all but 4 GB). Restarts the tools' machine. */
+  async function applyMemory(gb: number | null) {
+    memBusy = true;
+    try {
+      await invoke('memory_set', { gb });
+      toasts.show(`The tools now have ${gb ?? mem?.default_gb} GB of memory.`, 'info');
+    } catch (e) {
+      toasts.show(errorText(e), 'error', undefined, 12000);
+    }
+    await loadMemory();
+    await live.refreshUsage();
+    await live.refreshHardware();
+    memBusy = false;
+  }
+  const memMachine = $derived(mem?.platform === 'windows' ? 'the Linux side of Windows (WSL)' : 'Colima');
+
   // the Linux distribution the desktop app uses (for \\wsl.localhost paths)
   let distro = $state('Ubuntu-24.04');
   backendStatus().then((s) => s && (distro = s.distro));
@@ -202,13 +236,51 @@ Containers: ${engine ?? 'none found'}
       <div><span class="label-caps block">System</span><span class="font-semibold">{hw.os ?? ''}</span></div>
     </section>
 
-    {#if hw.wsl && hw.memory_gb < 32}
+    {#if mem}
+      <section class="card flex flex-col gap-3 p-5">
+        <h2 class="m-0 text-base font-semibold">Memory for the tools</h2>
+        <p class="m-0 text-[13px] leading-relaxed text-ink-2">
+          {#if mem.platform === 'windows'}
+            On Windows the tools run on the Linux side of Windows (WSL).
+            {#if mem.current_gb}It is set to <strong>{mem.current_gb} GB</strong> of this computer's {mem.total_gb} GB.{:else}No amount is set yet, so Windows gives it half of this computer's {mem.total_gb} GB.{/if}
+            By default 4 GB stay for Windows and the rest ({mem.default_gb} GB) is for the tools.
+            {#if mem.current_gb && Math.abs(hw.memory_gb - mem.current_gb) > 1.5}
+              Right now it still has {Math.round(hw.memory_gb)} GB: the new amount is used after Stop and Start.
+            {/if}
+          {:else if mem.platform === 'macos'}
+            On a Mac the tools run in a small Linux machine (Colima).
+            {#if mem.current_gb}It is set to <strong>{mem.current_gb} GB</strong> of this Mac's {mem.total_gb} GB.{:else}It has not been made yet.{/if}
+            By default 4 GB stay for the Mac and the rest ({mem.default_gb} GB) is for the tools.
+          {:else}
+            On Linux the tools use this computer's memory directly: runs may use up to <strong>{mem.default_gb} GB</strong> of its
+            {mem.total_gb} GB, and 4 GB stay for the computer. There is nothing to set.
+          {/if}
+        </p>
+        {#if mem.platform !== 'linux'}
+          <div class="flex flex-wrap items-end gap-3">
+            <label class="flex flex-col gap-1.5 text-[13px] font-semibold">
+              Memory (GB)
+              <input class="input w-[120px]" type="number" min="2" max={mem.total_gb} bind:value={memChoice} />
+            </label>
+            <span title={live.running > 0 ? 'A run is going: change the memory when it has finished' : ''}>
+              <Button busy={memBusy} disabled={live.running > 0 || !memChoice || memChoice === mem.current_gb} onclick={() => applyMemory(memChoice)}>Apply</Button>
+            </span>
+            {#if mem.current_gb !== mem.default_gb}
+              <Button variant="quiet" disabled={memBusy || live.running > 0} onclick={() => applyMemory(null)}>Back to {mem.default_gb} GB</Button>
+            {/if}
+          </div>
+          <p class="m-0 text-xs leading-relaxed text-muted">
+            Apply restarts {memMachine}, which takes a few seconds{mem.platform === 'windows' ? ' and also restarts anything else you run in WSL' : ''}.
+            It can't be changed while a run is going.
+          </p>
+        {/if}
+      </section>
+    {:else if hw.wsl}
       <section class="card flex gap-3 p-5 text-[13px] leading-relaxed text-ink-2">
         <span class="text-info"><Icon name="info" /></span>
         <span>
-          Windows gives its Linux side (WSL) half of the computer's memory by default: here {Math.round(hw.memory_gb)} GB.
-          To give it more, make a file called <code>.wslconfig</code> in your Windows user folder with
-          <code>[wsl2]</code> and <code>memory=24GB</code> on the next line (leave a few GB for Windows), then restart the computer.
+          On Windows the tools run on the Linux side of Windows (WSL), which has {Math.round(hw.memory_gb)} GB of memory here.
+          The desktop app sets and changes that amount in its Settings (4 GB stay for Windows, the rest is for the tools).
         </span>
       </section>
     {/if}
@@ -269,6 +341,16 @@ Containers: ${engine ?? 'none found'}
         {/if}
         <Button icon="refresh" busy={checking} onclick={checkUpdate}>Check for updates</Button>
       </div>
+      {#if update?.newer && update.whats_new?.length}
+        <div class="flex flex-col gap-2 rounded-xl bg-surface-2 px-4 py-3 text-[13px] leading-relaxed text-ink-2">
+          <span class="font-semibold text-ink">What is new in version {update.latest}</span>
+          <ul class="m-0 flex list-disc flex-col gap-1.5 pl-5">
+            {#each update.whats_new as n (n.title + n.text)}
+              <li>{#if n.title}<strong class="text-ink">{n.title}.</strong>{' '}{/if}{n.text}</li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
     </section>
 
     <section class="card flex flex-col gap-3 p-5">

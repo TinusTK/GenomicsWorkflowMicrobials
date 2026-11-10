@@ -14,6 +14,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
+
+mod memory;
 use tauri::{Manager, RunEvent, State};
 
 const PORT: u16 = 8642;
@@ -35,6 +37,8 @@ struct Backend {
     /// bytes of the update downloaded so far, and its full size (0 until known)
     update_done: AtomicU64,
     update_total: AtomicU64,
+    /// GB the app just gave WSL by itself (Windows), until the GUI has said so
+    memory_notice: Mutex<Option<u32>>,
 }
 
 #[derive(Serialize)]
@@ -164,6 +168,11 @@ fn ensure(app: &tauri::AppHandle) {
             std::thread::sleep(Duration::from_millis(200));
         }
     }
+    // the first time: WSL gets all the memory but 4 GB (a value that is there stays)
+    #[cfg(windows)]
+    if let Some(gb) = default_wsl_memory() {
+        *state.memory_notice.lock().unwrap() = Some(gb);
+    }
     let res = app.path().resource_dir().unwrap_or_default();
     match start(&res) {
         Ok(child) => {
@@ -262,7 +271,7 @@ fn setup_script(name: &str, text: &str) -> Result<PathBuf, String> {
 /// inside WSL (Windows) or straight on Ubuntu and Debian (Linux), Colima with
 /// Homebrew (Mac; `cpus` and `memory` GB are what Colima gets).
 #[tauri::command]
-#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+#[allow(unused_variables)]
 fn setup_docker(cpus: Option<u32>, memory: Option<u32>) -> Result<(), String> {
     #[cfg(windows)]
     {
@@ -280,7 +289,7 @@ fn setup_docker(cpus: Option<u32>, memory: Option<u32>) -> Result<(), String> {
     {
         let text = include_str!("setup-docker-mac.sh")
             .replace("@CPUS@", &cpus.unwrap_or(2).clamp(1, 256).to_string())
-            .replace("@MEMORY@", &memory.unwrap_or(4).clamp(2, 1024).to_string());
+            .replace("@MEMORY@", &mac_memory().to_string());
         // Terminal opens a .command file and runs it
         let path = setup_script("Set up Docker.command", &text)?;
         Command::new("open").arg(&path).spawn().map(|_| ()).map_err(|e| format!("Terminal could not be opened: {e}"))
@@ -393,6 +402,39 @@ fn has_colima() -> bool {
 #[cfg(target_os = "macos")]
 const DOCKER_DESKTOP: &str = "/Applications/Docker.app";
 
+#[cfg(target_os = "macos")]
+fn colima_running() -> bool {
+    has_colima() && Command::new("colima").arg("status").output().is_ok_and(|o| o.status.success())
+}
+
+#[cfg(target_os = "macos")]
+fn stop_colima() -> Result<(), String> {
+    let out = Command::new("colima").arg("stop").output().map_err(|e| e.to_string())?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!("Colima could not be stopped: {}", last_words(&out)))
+    }
+}
+
+/// Start Colima with the memory the tools are to have (and `cpus` when given).
+#[cfg(target_os = "macos")]
+fn start_colima(cpus: Option<u32>) -> Result<(), String> {
+    let mut cmd = Command::new("colima");
+    cmd.arg("start");
+    // every start sets the machine's size, also for one made earlier with less
+    if let Some(c) = cpus {
+        cmd.args(["--cpu", &c.clamp(1, 256).to_string()]);
+    }
+    cmd.args(["--memory", &mac_memory().to_string()]);
+    let out = cmd.output().map_err(|e| e.to_string())?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!("Colima could not start: {}", last_words(&out)))
+    }
+}
+
 /// Switch the app's Linux off (Windows): the engine and Docker go with it and
 /// Windows gets the memory back.
 #[cfg(windows)]
@@ -436,9 +478,8 @@ fn stop_services(app: &tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let _ = app;
-        if has_colima() && Command::new("colima").arg("status").output().is_ok_and(|o| o.status.success()) {
-            let out = Command::new("colima").arg("stop").output().map_err(|e| e.to_string())?;
-            return if out.status.success() { Ok(()) } else { Err(format!("Colima could not be stopped: {}", last_words(&out))) };
+        if colima_running() {
+            return stop_colima();
         }
         if Path::new(DOCKER_DESKTOP).exists() {
             let out = Command::new("osascript").args(["-e", "quit app \"Docker\""]).output().map_err(|e| e.to_string())?;
@@ -459,7 +500,7 @@ fn stop_services(app: &tauri::AppHandle) -> Result<(), String> {
     }
 }
 
-#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+#[allow(unused_variables)]
 fn start_services(app: &tauri::AppHandle, cpus: Option<u32>, memory: Option<u32>) -> Result<(), String> {
     #[cfg(windows)]
     {
@@ -489,16 +530,7 @@ fn start_services(app: &tauri::AppHandle, cpus: Option<u32>, memory: Option<u32>
     {
         let _ = app;
         if has_colima() {
-            let mut cmd = Command::new("colima");
-            cmd.arg("start");
-            // every start sets the machine's size: all the Mac's memory but 4 GB,
-            // also for a machine made earlier with less
-            if let (Some(c), Some(m)) = (cpus, memory) {
-                cmd.args(["--cpu", &c.clamp(1, 256).to_string()]);
-                cmd.args(["--memory", &m.clamp(2, 1024).to_string()]);
-            }
-            let out = cmd.output().map_err(|e| e.to_string())?;
-            return if out.status.success() { Ok(()) } else { Err(format!("Colima could not start: {}", last_words(&out))) };
+            return start_colima(cpus);
         }
         if Path::new(DOCKER_DESKTOP).exists() {
             // it takes a minute to be ready; the app keeps looking
@@ -530,6 +562,151 @@ async fn services_start(app: tauri::AppHandle, cpus: Option<u32>, memory: Option
 #[tauri::command]
 async fn services_stop(app: tauri::AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || stop_services(&app)).await.map_err(|e| e.to_string())?
+}
+
+// ---------------------------------------------------------------- memory for the tools
+
+/// This computer's memory in whole GB (a 32 GB computer reports a little less).
+fn total_memory_gb() -> u32 {
+    let mut sys = sysinfo::System::new();
+    sys.refresh_memory();
+    (sys.total_memory() as f64 / 1_073_741_824.0).round() as u32
+}
+
+#[cfg(windows)]
+fn wslconfig() -> PathBuf {
+    dirs::home_dir().unwrap_or_default().join(".wslconfig")
+}
+
+/// Windows, at every start of the engine: when `.wslconfig` gives WSL no
+/// memory yet (WSL then takes half the computer's), give it all but 4 GB. A
+/// value that is there, the user's own or one set in Settings, is left alone.
+/// Returns the GB it set, so the app can tell the user (it changes a settings
+/// file of theirs: never silently).
+#[cfg(windows)]
+fn default_wsl_memory() -> Option<u32> {
+    let path = wslconfig();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    if memory::wsl_memory_gb(&text).is_some() {
+        return None;
+    }
+    let gb = memory::default_gb(total_memory_gb());
+    std::fs::write(&path, memory::with_wsl_memory(&text, gb)).ok().map(|_| gb)
+}
+
+/// The GB the app gave WSL by itself at this start, once: the GUI shows a
+/// message about it.
+#[tauri::command]
+fn memory_notice(state: State<Backend>) -> Option<u32> {
+    state.memory_notice.lock().unwrap().take()
+}
+
+/// Mac: where a memory amount chosen in Settings is kept (Colima's own file
+/// is rewritten by Colima).
+#[cfg(target_os = "macos")]
+fn chosen_memory_file() -> PathBuf {
+    dirs::data_dir().unwrap_or_default().join("genomics-workflow-microbials").join("memory_gb")
+}
+
+/// Mac: GB for Colima's machine: the amount chosen in Settings, else all but 4 GB.
+#[cfg(target_os = "macos")]
+fn mac_memory() -> u32 {
+    let total = total_memory_gb();
+    std::fs::read_to_string(chosen_memory_file())
+        .ok()
+        .and_then(|t| t.trim().parse::<u32>().ok())
+        .unwrap_or_else(|| memory::default_gb(total))
+        .clamp(2, total.max(2))
+}
+
+#[derive(Serialize)]
+struct MemoryInfo {
+    /// "windows", "macos" or "linux"
+    platform: &'static str,
+    /// the computer's memory
+    total_gb: u32,
+    /// all but 4 GB
+    default_gb: u32,
+    /// what the tools' machine is set to now (WSL, Colima); nothing on Linux,
+    /// where the tools use the computer directly
+    current_gb: Option<u32>,
+}
+
+/// Settings > Memory for the tools: what the computer has and what the tools get.
+#[tauri::command]
+fn memory_info() -> MemoryInfo {
+    let total_gb = total_memory_gb();
+    #[cfg(windows)]
+    let current_gb = memory::wsl_memory_gb(&std::fs::read_to_string(wslconfig()).unwrap_or_default());
+    #[cfg(target_os = "macos")]
+    let current_gb = std::fs::read_to_string(dirs::home_dir().unwrap_or_default().join(".colima/default/colima.yaml"))
+        .ok()
+        .and_then(|t| memory::colima_memory_gb(&t));
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let current_gb = None;
+    MemoryInfo { platform: std::env::consts::OS, total_gb, default_gb: memory::default_gb(total_gb), current_gb }
+}
+
+#[allow(unused_variables)]
+fn set_memory(app: &tauri::AppHandle, gb: Option<u32>) -> Result<(), String> {
+    if run_going() {
+        return Err("A run is still going. Change the memory when it has finished.".into());
+    }
+    let total = total_memory_gb();
+    let amount = gb.unwrap_or_else(|| memory::default_gb(total));
+    if amount < 2 || amount > total {
+        return Err(format!("Choose between 2 and {total} GB."));
+    }
+    #[cfg(windows)]
+    {
+        let path = wslconfig();
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        std::fs::write(&path, memory::with_wsl_memory(&text, amount)).map_err(|e| format!("The WSL settings file could not be written: {e}"))?;
+        // WSL reads it when it starts: switch it off fully and start the engine again
+        let state = app.state::<Backend>();
+        shutdown();
+        if let Some(mut child) = state.child.lock().unwrap().take() {
+            let _ = child.kill();
+        }
+        let _ = Command::new("wsl.exe").arg("--shutdown").creation_flags(NO_WINDOW).status();
+        ensure(app);
+        Ok(())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if !has_colima() {
+            return Err("The memory is set for Colima, which is not installed here. With Docker Desktop, set it in Docker Desktop's own settings.".into());
+        }
+        let file = chosen_memory_file();
+        match gb {
+            Some(_) => {
+                if let Some(dir) = file.parent() {
+                    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                }
+                std::fs::write(&file, amount.to_string()).map_err(|e| e.to_string())?;
+            }
+            // back to the default
+            None => {
+                let _ = std::fs::remove_file(&file);
+            }
+        }
+        // Colima takes a new size only when it starts
+        if colima_running() {
+            stop_colima()?;
+        }
+        start_colima(None)
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        Err("On Linux the tools use the computer's memory directly: there is nothing to set.".into())
+    }
+}
+
+/// Settings > Memory for the tools > Apply (`gb` nothing = back to all but
+/// 4 GB). Restarts the tools' machine; refused while a run is going.
+#[tauri::command]
+async fn memory_set(app: tauri::AppHandle, gb: Option<u32>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || set_memory(&app, gb)).await.map_err(|e| e.to_string())?
 }
 
 /// Open a web page or a new email in the system's browser or mail program.
@@ -840,6 +1017,9 @@ fn main() {
             setup_docker,
             services_start,
             services_stop,
+            memory_info,
+            memory_notice,
+            memory_set,
             update_install,
             update_progress,
             extras_overview,
@@ -881,10 +1061,18 @@ fn main() {
                     return;
                 }
             }
+            // Mac: quitting also stops Colima, so its Linux machine stops taking memory
+            // (Start in the side panel starts it again). Same exceptions as on Windows.
+            #[cfg(target_os = "macos")]
+            let stop_docker = !app.state::<Backend>().updating.load(Ordering::Relaxed) && !run_going() && colima_running();
             // the window's own engine stops with it; runs carry on in their own processes
             shutdown();
             if let Some(mut child) = app.state::<Backend>().child.lock().unwrap().take() {
                 let _ = child.kill();
+            }
+            #[cfg(target_os = "macos")]
+            if stop_docker {
+                let _ = stop_colima();
             }
         }
     });

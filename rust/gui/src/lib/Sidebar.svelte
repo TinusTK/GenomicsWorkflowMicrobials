@@ -1,5 +1,6 @@
 <script lang="ts">
   import Button from './ui/Button.svelte';
+  import Dialog from './ui/Dialog.svelte';
   import Icon from './ui/Icon.svelte';
   import { colimaSize, invoke, isDesktop } from './desktop';
   import { live } from './live.svelte';
@@ -52,6 +53,8 @@
           : 'Stop Docker, so it takes no memory',
   );
   let busy = $state<'' | 'start' | 'stop'>('');
+  // Stop asks first: a slip of the mouse should not switch the tools off
+  let confirmStop = $state(false);
   const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
   /** Keep looking until Docker is in the state asked for (it can take a minute to start). */
   async function settle(on: boolean) {
@@ -135,7 +138,7 @@
           <Button size="sm" icon="play" class="flex-1" disabled={!canStart || busy !== ''} busy={busy === 'start'} onclick={() => services('start')}>Start</Button>
         </span>
         <span class="flex flex-1" title={stopHint}>
-          <Button size="sm" icon="stop" class="flex-1" disabled={!canStop || busy !== ''} busy={busy === 'stop'} onclick={() => services('stop')}>Stop</Button>
+          <Button size="sm" icon="stop" class="flex-1" disabled={!canStop || busy !== ''} busy={busy === 'stop'} onclick={() => (confirmStop = true)}>Stop</Button>
         </span>
       </div>
     {/if}
@@ -156,3 +159,23 @@
     <span>Version {live.hardware?.app_version ?? ''}</span>
   </div>
 </nav>
+
+<Dialog bind:open={confirmStop} title="Stop the tools' services?">
+  <p class="m-0">
+    {live.hardware?.wsl
+      ? 'Docker and the Linux side of Windows (WSL) are switched off, so they take no memory.'
+      : 'Docker is switched off, so it takes no memory.'}
+    Nothing can be run until you press Start again. Your runs, workflows, tools and databases are kept.
+  </p>
+  {#snippet actions()}
+    <Button onclick={() => (confirmStop = false)}>Keep running</Button>
+    <Button
+      variant="danger-solid"
+      icon="stop"
+      onclick={() => {
+        confirmStop = false;
+        void services('stop');
+      }}>Stop</Button
+    >
+  {/snippet}
+</Dialog>

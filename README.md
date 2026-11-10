@@ -56,17 +56,18 @@ Settings also shows the same steps as lines to copy, for doing it by hand.
 **Start and Stop** in the side panel switch Docker on and off (on a Mac with
 Colima's Linux machine, on Windows with the Linux side, WSL), so it takes
 memory only while you use it. On Mac and Linux Docker does not start with the
-app: press Start. Stop is refused while a run is going. On Windows, **Quit**
-in the tray icon's menu switches the Linux side off as well, unless a run is
-still going.
+app: press Start. Stop asks first, and is refused while a run is going.
+**Quit** in the tray icon's menu does the same as Stop on Windows (the Linux
+side) and on a Mac (Colima), unless a run is still going.
 
 About 10 GB of disk for the reference databases, plus room for runs.
 
-**Memory:** the computer needs at least 16 GB, on Windows, Mac and Linux
-(on Windows the tools get half of it by default; Settings says how to give
-them more). With 16 GB some
-tools may still not work, so more than 16 GB is best. The app warns before a
-run about steps that need more than the computer has.
+**Memory:** the computer needs at least 16 GB, on Windows, Mac and Linux.
+With 16 GB some tools may still not work, so more than 16 GB is best. The
+app keeps 4 GB for the computer itself and gives the rest to the tools; on
+Windows and Mac the amount can be changed under **Settings › Memory for the
+tools** (no file to edit). The app warns before a run about steps that need
+more than the computer has.
 
 ### Opening and closing
 
@@ -79,7 +80,8 @@ again when you open the app.
 ### Updating
 
 The app looks for a newer version each time it opens and tells you when one
-is out. Press **Update now** (in that message, or in **Settings**): the app
+is out. **Settings › Updates** lists what is new in it, so you can decide.
+Press **Update now** (in that message, or in **Settings**): the app
 downloads the new version for your computer, installs it over the old one and
 opens again. Your workflows, tools, databases and runs are kept, and a run in
 progress carries on. Nothing needs uninstalling.
@@ -226,6 +228,27 @@ saved where you choose, with what is needed to find out why (the app and
 computer, the workflow, what each step printed and where it stopped). It
 holds no sequence data, and sample names and the computer's user name are
 replaced before it is written. Attach it to your issue or email.
+
+## Code signing policy
+
+- **Windows:** free code signing provided by [SignPath.io](https://signpath.io),
+  certificate by [SignPath Foundation](https://signpath.org). This has been
+  applied for; until it is approved the Windows installer is not signed.
+- **Mac:** signed with the maintainer's Apple Developer ID and notarized by Apple.
+- Every installer is built from this repository by GitHub Actions
+  (`.github/workflows/release.yml`), from a tagged commit.
+
+Team roles:
+
+- Committers and reviewers: [TinusTK](https://github.com/TinusTK)
+- Approvers: [TinusTK](https://github.com/TinusTK)
+
+Privacy policy: <https://tinustk.github.io/GWM/privacy-policy.html>. This
+program will not transfer any information to other networked systems unless
+specifically requested by the user or the person installing or operating it,
+other than the downloads the policy lists (its own updates, fonts, tool
+containers and reference databases), which carry no information about the
+user or their data.
 
 ## For developers
 

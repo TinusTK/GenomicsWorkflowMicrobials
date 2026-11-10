@@ -814,15 +814,88 @@ pub fn newer_versions(cat: &Catalog) -> Result<Vec<serde_json::Value>> {
 pub fn app_update() -> Result<serde_json::Value> {
     let current = env!("CARGO_PKG_VERSION");
     let page = format!("https://github.com/{APP_REPO}/releases/latest");
-    let latest = fetch_json(&format!("https://api.github.com/repos/{APP_REPO}/releases/latest"))?
+    let release = fetch_json(&format!("https://api.github.com/repos/{APP_REPO}/releases/latest"))?;
+    let latest = release
+        .as_ref()
         .and_then(|r| r["tag_name"].as_str().map(|t| t.trim_start_matches('v').to_string()));
     let newer = latest.as_ref().is_some_and(|l| version_key(l) > version_key(current));
-    Ok(json!({"current": current, "latest": latest, "newer": newer, "url": page}))
+    // what the release says is new, so the user can decide whether to update
+    let news: Vec<serde_json::Value> = release
+        .as_ref()
+        .and_then(|r| r["body"].as_str())
+        .map(whats_new)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(title, text)| json!({"title": title, "text": text}))
+        .collect();
+    Ok(json!({"current": current, "latest": latest, "newer": newer, "url": page, "whats_new": news}))
+}
+
+/// Markdown marks taken out of a line of release notes: bold, code, links.
+fn plain(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    // [words](link) -> words
+    while let Some(open) = rest.find('[') {
+        let after = &rest[open + 1..];
+        match after
+            .find("](")
+            .and_then(|mid| after[mid..].find(')').map(|end| (mid, mid + end)))
+        {
+            Some((mid, end)) => {
+                out.push_str(&rest[..open]);
+                out.push_str(&after[..mid]);
+                rest = &after[end + 1..];
+            }
+            None => break,
+        }
+    }
+    out.push_str(rest);
+    out.replace("**", "").replace('`', "").trim().to_string()
+}
+
+/// The points under "What is new" in a release's notes, as (title, text): a
+/// point written "- **Title.** text" has both, any other only text.
+pub fn whats_new(body: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut inside = false;
+    for line in body.lines() {
+        let line = line.trim();
+        if let Some(heading) = line.strip_prefix("## ") {
+            inside = heading.to_lowercase().contains("new");
+            continue;
+        }
+        let Some(point) = line.strip_prefix("- ").filter(|_| inside) else {
+            continue;
+        };
+        let (title, text) = match point.strip_prefix("**").and_then(|p| p.split_once("**")) {
+            Some((title, text)) => (title.trim().trim_end_matches('.'), text),
+            None => ("", point),
+        };
+        out.push((plain(title), plain(text)));
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn whats_new_from_release_notes() {
+        let body = "Short line.\n\n## Download\n\n- not this\n\n## What is new\n\n\
+                    - **Update now.** Press **Update now** in `Settings`.\n\
+                    - A point without a title, with a [link](https://example.org/x).\n\n\
+                    ## Not yet tried\n\n- nor this\n";
+        assert_eq!(
+            whats_new(body),
+            vec![
+                ("Update now".to_string(), "Press Update now in Settings.".to_string()),
+                (String::new(), "A point without a title, with a link.".to_string()),
+            ]
+        );
+        assert!(whats_new("no headings at all").is_empty());
+    }
 
     #[test]
     fn github_links() {

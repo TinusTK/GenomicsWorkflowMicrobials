@@ -10,6 +10,8 @@ export interface AppUpdate {
   latest: string | null;
   newer: boolean;
   url: string;
+  /** the points under "What is new" in the newest release's notes */
+  whats_new?: { title: string; text: string }[];
 }
 
 class Live {
@@ -35,6 +37,19 @@ class Live {
       // every start: say so when a newer version is out (quietly skipped with no internet)
       if (!this.#lookedForUpdate) {
         this.#lookedForUpdate = true;
+        // Windows: the app gave WSL its memory by itself (nothing was set): say so
+        if (isDesktop())
+          invoke<number | null>('memory_notice')
+            .then((gb) => {
+              if (gb)
+                toasts.show(
+                  `The tools were given ${gb} GB of this computer's memory (4 GB stay for Windows). It is used after the next Stop and Start; change it under Settings › Memory for the tools.`,
+                  'info',
+                  undefined,
+                  20000,
+                );
+            })
+            .catch(() => {});
         this.checkUpdate()
           .then((u) => {
             if (!u.newer) return;
