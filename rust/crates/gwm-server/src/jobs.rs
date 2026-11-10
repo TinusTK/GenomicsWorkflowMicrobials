@@ -22,6 +22,8 @@ pub struct Job {
     pub log: Vec<String>,
     /// (done, total) bytes or steps
     pub progress: Option<(u64, u64)>,
+    /// what the work found (a tool's help text, the files a trial made, ...)
+    pub result: Option<serde_json::Value>,
 }
 
 static JOBS: LazyLock<Mutex<HashMap<String, Arc<Mutex<Job>>>>> = LazyLock::new(Default::default);
@@ -36,6 +38,9 @@ impl Reporter {
     }
     pub fn progress(&self, done: u64, total: u64) {
         self.0.lock().unwrap().progress = Some((done, total));
+    }
+    pub fn result(&self, value: serde_json::Value) {
+        self.0.lock().unwrap().result = Some(value);
     }
 }
 
@@ -52,6 +57,7 @@ pub fn spawn(title: &str, work: impl FnOnce(&Reporter) -> Result<()> + Send + 's
         status: "running".into(),
         log: vec![],
         progress: None,
+        result: None,
     }));
     JOBS.lock().unwrap().insert(id, job.clone());
     let r = Reporter(job.clone());

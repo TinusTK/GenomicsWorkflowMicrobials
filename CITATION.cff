@@ -1,14 +1,16 @@
 cff-version: 1.2.0
-message: "If you use this pipeline, please cite this repository."
+message: "If you use this app, please cite this repository."
 title: "Genomics Workflow Microbials"
 abstract: >-
-  Stand-alone Nextflow version of the Galaxy Australia workflow
-  "Genomic Assembly and analysis - RDH version 5.2" for typing bacterial
-  isolates from paired Illumina reads, with every tool and database version
-  recorded for traceability.
+  Desktop app (Windows, Mac, Linux) that types bacterial isolates from paired
+  Illumina reads. It runs the Galaxy Australia workflow "Genomic Assembly and
+  analysis - RDH version 6" without Galaxy, with every tool in its own
+  container at a fixed version and every tool and database version recorded
+  for traceability. Workflows can be built in the app or imported from
+  Galaxy, and tools added from GitHub.
 authors:
   - alias: "TinusTK"
-version: "1.0.0"
-date-released: "2026-11-02"
+version: "2.0.0"
+date-released: "2026-11-10"
 license: MIT
 type: software

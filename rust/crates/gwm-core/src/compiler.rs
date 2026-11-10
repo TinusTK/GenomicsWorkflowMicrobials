@@ -250,10 +250,8 @@ pub fn plan(
         let (tool, step) = (r.tool, r.step);
         if tool.extra.get("draft").and_then(Value::as_bool) == Some(true) {
             return err(format!(
-                "step {}: {} was imported from Galaxy and has no command yet (write it in {})",
-                r.id,
-                tool.name,
-                tool.dir.join("tool.yml").display()
+                "step {}: {} is not ready yet: open it on the Tools page, write its command and switch on Ready to use",
+                r.id, tool.name
             ));
         }
         for d in &tool.databases {

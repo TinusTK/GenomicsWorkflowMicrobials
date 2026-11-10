@@ -13,6 +13,7 @@
   import Workflows from './pages/Workflows.svelte';
   import Builder from './pages/Builder.svelte';
   import Tools from './pages/Tools.svelte';
+  import ToolEditor from './pages/ToolEditor.svelte';
   import Databases from './pages/Databases.svelte';
   import Settings from './pages/Settings.svelte';
 
@@ -37,6 +38,8 @@
       {#key r.id + r.query.toString()}<Builder id={r.id} version={r.query.get('version')} startFrom={r.query.get('from')} />{/key}
     {:else if r.page === 'workflows'}
       <Workflows />
+    {:else if r.page === 'tools' && r.id}
+      {#key r.id}<ToolEditor id={r.id} />{/key}
     {:else if r.page === 'tools'}
       <Tools />
     {:else if r.page === 'databases'}

@@ -125,7 +125,7 @@ pub struct Tool {
     /// Folder holding this tool.yml
     #[serde(skip)]
     pub dir: PathBuf,
-    /// "built-in" or the tool pack's folder name
+    /// "built-in", or the folder under the data folder's tools/ (github, galaxy_import)
     #[serde(skip)]
     pub source: String,
     /// Folder name inside a run's tools/ (`<id>` or `<id>@<version>`)

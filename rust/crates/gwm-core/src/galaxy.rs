@@ -54,7 +54,7 @@ pub const IMPORT_SOURCE: &str = "galaxy_import";
 const QUAY: &str = "quay.io/biocontainers/";
 const DRAFT_COMMAND: &str = "\
 # Imported from Galaxy. A Galaxy workflow file has no command lines, so write
-# this tool's command here (docs/TOOLS.md shows how), then remove `draft: true`.
+# this tool's command on the Tools page (open the tool, then Edit).
 echo 'This tool was imported from Galaxy and has no command yet.' >&2
 exit 1
 ";

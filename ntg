@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
-# NTG pathology genomics workflow - command line and UI launcher.
-#   ./ntg ui                      open the browser UI
-#   ./ntg run rdh_v5_2 fastq/     run a workflow on a folder of reads
-#   ./ntg db install <id>         download a reference database
-#   ./ntg tools install <pack>    install a tool pack from git
-#   ./ntg hardware                this computer's specs and warnings
-#   ./ntg --help                  everything else
-set -euo pipefail
-ROOT="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
-export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
-exec python3 -m app.cli "$@"
+# Version 1 (the browser app run with ./ntg) has ended. An old version 1
+# install that updates itself lands here: this tells its user where to go.
+echo "Genomics Workflow Microbials is now a desktop app (version 2)."
+echo "Download the installer for your computer from:"
+echo "  https://github.com/TinusTK/GenomicsWorkflowMicrobials/releases/latest"
+echo "Your workflows, databases and results from version 1 are kept."
+read -r -t 60 -p "Press Enter to close. " _ || true

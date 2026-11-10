@@ -2,8 +2,9 @@
   import PageHeader from '../lib/PageHeader.svelte';
   import Button from '../lib/ui/Button.svelte';
   import Icon from '../lib/ui/Icon.svelte';
-  import { backendStatus, invoke, isDesktop, openFolder } from '../lib/desktop';
-  import { toasts } from '../lib/toast.svelte';
+  import { get } from '../lib/api';
+  import { backendStatus, invoke, isDesktop, openFolder, openLink } from '../lib/desktop';
+  import { errorText, toasts } from '../lib/toast.svelte';
   import { live } from '../lib/live.svelte';
 
   live.refreshHardware();
@@ -25,11 +26,55 @@
     hw
       ? [
           { title: 'Runs', what: 'One folder per run: results, run details and a README. Safe to delete a run folder.', path: hw.runs_folder, linux: false },
-          { title: 'Your data', what: 'Your own workflows, installed tool packs and extra tool versions.', path: hw.data_folder, linux: true },
+          { title: 'Your data', what: 'Your own workflows, the tools you added and extra tool versions.', path: hw.data_folder, linux: true },
           { title: 'Reference databases', what: 'Kraken2, CheckM data and other databases you installed.', path: hw.databases_folder, linux: true },
           { title: 'Working files', what: 'Big temporary files while a run works; cleared after a successful run.', path: hw.work_folder, linux: true },
         ].map((p) => ({ ...p, linux: !p.path.startsWith('/mnt/') }))
       : [],
+  );
+
+  // closing the window keeps the desktop app in the system tray
+  let inTray = $state(false);
+  backendStatus().then((s) => s && (inTray = !!s.tray));
+
+  // ---------------------------------------------------------------- updates
+  interface Update {
+    current: string;
+    latest: string | null;
+    newer: boolean;
+    url: string;
+  }
+  let update = $state<Update | null>(null);
+  let checking = $state(false);
+  async function checkUpdate() {
+    checking = true;
+    try {
+      update = await get<Update>('/api/update');
+    } catch (e) {
+      toasts.show(errorText(e), 'error');
+    } finally {
+      checking = false;
+    }
+  }
+
+  // ---------------------------------------------------------------- report an issue
+  const ISSUES = 'https://github.com/TinusTK/GenomicsWorkflowMicrobials/issues/new';
+  const EMAIL = 't.k.business@outlook.com';
+  /** An email with the details a report needs already filled in. */
+  const mail = $derived(
+    `mailto:${EMAIL}?subject=${encodeURIComponent('Genomics Workflow Microbials: issue')}&body=${encodeURIComponent(
+      `What I was doing:
+
+What happened:
+
+Tool or workflow (and its GitHub link, if a tool would not install):
+
+---
+App version: ${hw?.app_version ?? ''}
+System: ${hw?.os ?? ''}${hw?.wsl ? ' (WSL)' : ''}
+Containers: ${engine ?? 'none found'}
+`,
+    )}`,
   );
 </script>
 
@@ -106,10 +151,53 @@
       {/each}
       <p class="m-0 rounded-xl bg-surface-2 px-4 py-3 text-[13px] leading-relaxed text-ink-2">
         To delete a run, delete its folder in Runs (or in the app). Its working files on the Linux side are then cleared
-        automatically. Don't delete the data folder by hand: it holds your own workflows and tool packs.
+        automatically. Don't delete the data folder by hand: it holds your own workflows and tools.
       </p>
     </section>
 
+    <section class="card flex flex-col gap-3 p-5">
+      <h2 class="m-0 text-base font-semibold">Updates</h2>
+      <div class="flex flex-wrap items-center gap-3 text-sm">
+        <span class="min-w-0 flex-[1_1_320px]">
+          {#if !update}
+            You have version {hw.app_version}.
+          {:else if update.newer}
+            <strong>Version {update.latest} is out</strong> (you have {update.current}). Download the installer and run it: your
+            workflows, tools, databases and runs are kept.
+          {:else}
+            <span class="flex items-center gap-2 text-ok-ink"><Icon name="check" /> You have the newest version ({update.current}).</span>
+          {/if}
+        </span>
+        {#if update?.newer}
+          <Button variant="primary" icon="download" onclick={() => openLink(update!.url)}>Open the download page</Button>
+        {/if}
+        <Button icon="refresh" busy={checking} onclick={checkUpdate}>Check for updates</Button>
+      </div>
+    </section>
+
+    <section class="card flex flex-col gap-3 p-5">
+      <h2 class="m-0 text-base font-semibold">Report an issue</h2>
+      <p class="m-0 text-[13px] leading-relaxed text-ink-2">
+        Something not working, or a tool that will not install or run? Tell us what you were doing and what happened, and for
+        a tool add its GitHub link. Posting on GitHub needs a free GitHub account and lets others see the answer; an email
+        needs no account.
+      </p>
+      <div class="flex flex-wrap gap-2.5">
+        <Button icon="alert" onclick={() => openLink(ISSUES)}>Report on GitHub</Button>
+        <Button icon="file" onclick={() => openLink(mail)}>Email it instead</Button>
+      </div>
+      <p class="m-0 text-xs text-muted">Email: {EMAIL}</p>
+    </section>
+
+    {#if inTray}
+      <section class="card flex gap-3 p-5 text-[13px] leading-relaxed text-ink-2">
+        <span class="text-info"><Icon name="info" /></span>
+        <span>
+          Closing the window keeps the app in the system tray (the small icons next to the clock), so it opens again at once.
+          To close it fully, right-click its icon there and choose <strong>Quit</strong>. Runs that are going carry on either way.
+        </span>
+      </section>
+    {/if}
     <p class="m-0 text-xs text-muted">Genomics Workflow Microbials {hw.app_version}</p>
   {:else}
     <p class="m-0 text-sm text-muted">Checking…</p>

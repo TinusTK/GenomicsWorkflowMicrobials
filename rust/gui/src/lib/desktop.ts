@@ -24,6 +24,8 @@ export interface BackendStatus {
   problem: string | null;
   windows: boolean;
   distro: string;
+  /** closing the window keeps the app in the system tray */
+  tray?: boolean;
 }
 
 export async function backendStatus(): Promise<BackendStatus | null> {
@@ -45,4 +47,17 @@ export async function openFolder(path: string) {
   } catch {
     toasts.show(path, 'info', undefined, 12000);
   }
+}
+
+/** Open a web page or a new email outside the app (the browser or mail program). */
+export async function openLink(url: string) {
+  if (isDesktop()) {
+    try {
+      await invoke('open_url', { url });
+    } catch (e) {
+      toasts.show(`Could not open ${url}: ${e}`, 'error');
+    }
+    return;
+  }
+  window.open(url, '_blank', 'noopener');
 }

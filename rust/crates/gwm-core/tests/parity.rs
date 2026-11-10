@@ -1,5 +1,5 @@
 //! The Rust compiler must give the same step order, settings and runnable map as
-//! the v1 Python compiler (fixtures from rust/tools/make_parity_fixtures.py).
+//! the v1 Python compiler (fixtures made from v1 before it was removed).
 
 use std::fs;
 use std::path::{Path, PathBuf};

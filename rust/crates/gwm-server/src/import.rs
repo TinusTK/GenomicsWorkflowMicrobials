@@ -32,6 +32,45 @@ fn q(s: &str) -> String {
         .replace('+', "%2B")
 }
 
+/// The numbers in a version (`1.4.2` -> 1, 4, 2), to tell which is newer.
+pub fn version_key(v: &str) -> Vec<u64> {
+    v.split(|c: char| !c.is_ascii_digit())
+        .filter(|p| !p.is_empty())
+        .map(|p| p.parse().unwrap_or(0))
+        .collect()
+}
+
+/// Every version of a BioContainers package as (version, image of its newest
+/// build), newest version first.
+pub fn biocontainer_versions(package: &str) -> Result<Vec<(String, String)>> {
+    let mut best: BTreeMap<String, (u32, String)> = BTreeMap::new();
+    for page in 1..=20 {
+        let d = get_json(&format!(
+            "{QUAY_API}/{}/tag/?limit=100&onlyActiveTags=true&page={page}",
+            q(package)
+        ))?;
+        for tag in d["tags"].as_array().into_iter().flatten() {
+            let Some(name) = tag["name"].as_str() else { continue };
+            let Some((version, build)) = name.split_once("--") else {
+                continue;
+            };
+            let n = build.rsplit('_').next().and_then(|n| n.parse().ok()).unwrap_or(0);
+            if best.get(version).is_none_or(|(b, _)| n >= *b) {
+                best.insert(version.to_string(), (n, name.to_string()));
+            }
+        }
+        if d["has_additional"].as_bool() != Some(true) {
+            break;
+        }
+    }
+    let mut out: Vec<(String, String)> = best
+        .into_iter()
+        .map(|(v, (_, tag))| (v, format!("quay.io/biocontainers/{package}:{tag}")))
+        .collect();
+    out.sort_by_key(|a| std::cmp::Reverse(version_key(&a.0)));
+    Ok(out)
+}
+
 /// Looks things up on quay.io and the Galaxy Tool Shed.
 pub struct Online;
 

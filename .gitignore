@@ -6,13 +6,9 @@ CLAUDE.md
 *memory.md
 .claude/
 # Local run data (machine paths, sample names)
-.nextflow/
-.nextflow.log*
 work/
 results/
 build/
-__pycache__/
-*.pyc
 # Sequencing reads (patient/lab data, large)
 fastq/
 *.fastq

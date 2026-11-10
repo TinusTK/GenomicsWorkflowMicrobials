@@ -1,5 +1,4 @@
-# Genomics Workflow Microbials v2: the Rust app.
-# The Python app in app/ stays until this one passes the same test runs.
+# Genomics Workflow Microbials: the Rust app.
 [workspace]
 resolver = "2"
 members = ["crates/gwm-core", "crates/gwm-engine", "crates/gwm-server", "crates/gwm-cli"]
@@ -7,7 +6,7 @@ members = ["crates/gwm-core", "crates/gwm-engine", "crates/gwm-server", "crates/
 exclude = ["desktop"]
 
 [workspace.package]
-version = "2.0.0-dev"
+version = "2.0.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/TinusTK/GenomicsWorkflowMicrobials"

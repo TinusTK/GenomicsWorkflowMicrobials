@@ -1,4 +1,4 @@
-# Builds and tests the v2 Rust app (rust/) on Windows, macOS and Linux.
+# Builds and tests the app (rust/) on Windows, macOS and Linux.
 name: Rust
 
 on:

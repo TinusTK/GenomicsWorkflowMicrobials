@@ -7,6 +7,7 @@ pub mod executor;
 pub mod provenance;
 pub mod resources;
 pub mod runs;
+pub mod trial;
 
 pub use backend::{Backend, Docker};
 pub use executor::{Executor, Outcome, RunSpec, Status, TaskEvent};

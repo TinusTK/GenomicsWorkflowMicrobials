@@ -1,19 +1,67 @@
 # Genomics Workflow Microbials
 
-A stand-alone version of the Galaxy Australia workflow **"Genomic Assembly and
-analysis - RDH version 5.2"**, which types bacterial isolates from paired
-Illumina reads. It runs without Galaxy on any Linux machine (or Windows with
-WSL2), using [Nextflow](https://www.nextflow.io) and containers pinned to the
-same tool versions Galaxy used. A browser UI shows the whole pipeline and the
-exact version of every tool and database, and every run records what produced
-its results.
+A desktop app for typing bacterial isolates from paired Illumina reads. It
+runs the Galaxy Australia workflow **"Genomic Assembly and analysis - RDH
+version 6"** on your own computer, without Galaxy, and lets you build your own
+workflows from the same tools or from tools you add.
 
-The original Galaxy workflow is in [`reference/`](reference/).
+- **One installer** for Windows, Mac and Linux. No Nextflow, Java or Python to set up.
+- **Every tool in its own container at a fixed version**, so results are repeatable.
+- **Every run in one folder** with its results and a record of exactly what ran.
+- **Add tools from GitHub** and **import workflows from Galaxy**.
 
-> **Version 1.0.0** (Microbial Pipeline). See
-> [Releases](https://github.com/TinusTK/GenomicsWorkflowMicrobials/releases).
+> **Version 2.0.0.** Version 1 (the browser app started with `./ntg`) has ended;
+> its saved workflows, databases and results are kept.
 
-## What it does
+## Install
+
+Download the installer for your computer from
+[Releases](https://github.com/TinusTK/GenomicsWorkflowMicrobials/releases/latest)
+and run it.
+
+| Computer | File | Notes |
+|---|---|---|
+| Windows 10/11 | `Genomics.Workflow.Microbials_2.0.0_x64-setup.exe` | Makes a Start menu entry and a desktop shortcut. |
+| Mac (Intel or Apple silicon) | `..._universal.dmg` | Drag the app to Applications. |
+| Linux | `..._amd64.AppImage` or `..._amd64.deb` | |
+
+The installers are not signed yet, so the first start shows a warning:
+
+- **Windows:** "Windows protected your PC": choose **More info**, then **Run anyway**.
+- **Mac:** right-click the app and choose **Open**, then **Open** again.
+
+### What the app needs
+
+The tools run in containers, which need a container engine. The app's Setup
+screen and its **Settings** page say what is missing.
+
+- **Windows:** the Linux side of Windows (WSL) with Ubuntu, and Docker inside
+  it. The app has buttons for both: **Install WSL** (asks for administrator
+  rights and a restart) and **Set up Docker**. Docker Desktop is not needed.
+- **Mac:** [Colima](https://github.com/abiosoft/colima)
+  (`brew install colima docker`, then `colima start`). The app has not been
+  tried on a Mac yet: please [report](#help-and-reporting-problems) what you find.
+- **Linux:** Docker Engine (`sudo apt install docker.io`) or Apptainer.
+
+About 10 GB of disk for the reference databases, plus room for runs. 16 GB of
+memory or more is best; the app warns before a run about steps that need more
+than the computer has.
+
+### Opening and closing
+
+Open it from the desktop shortcut or the Start menu. On Windows and Mac,
+closing the window keeps the app in the system tray (the small icons next to
+the clock), so it opens again at once. To close it fully, right-click its tray
+icon and choose **Quit**. Runs that are going carry on either way, and show
+again when you open the app.
+
+### Updating
+
+**Settings › Check for updates** says when a newer version is out and opens
+the download page. Run the new installer over the old one: your workflows,
+tools, databases and runs are kept.
+
+## What the built-in workflow does
 
 | Step | Tool | Version |
 |---|---|---|
@@ -26,244 +74,116 @@ The original Galaxy workflow is in [`reference/`](reference/).
 | emm typing | emmtyper | 0.2.0 |
 | Resistance / virulence genes | ABRicate (NCBI, VFDB) | 1.4.0 |
 | AMR (Australian reporting) | abriTAMR | 1.3.0 |
+| Shigella typing | ShigaPass + Mykrobe | 1.0.2 |
+| *C. diphtheriae* tox and MLST typing | built-in | 1.0.0 |
 | Completeness / contamination | CheckM | 1.2.3 |
 | Assembly QC | QUAST | 5.3.0 |
 | Summary tables | built-in | Galaxy's output tables, made the same way |
 
-Settings match the Galaxy workflow; see
-[`workflows/rdh_v6/workflow.yml`](workflows/rdh_v6/workflow.yml). Where
-this pipeline has to differ from Galaxy, the UI shows it next to the setting:
+Settings match the Galaxy workflow (the original file is in
+[`reference/`](reference/)). Where the app has to differ from Galaxy, it says
+so next to the setting:
 
-- **Kraken2 database:** Standard-8 (2026-06) instead of Galaxy's full
-  Standard (2020) with 2021 Bracken files, so species abundances can differ a little.
+- **Kraken2 database:** Standard-8 (2026-06) instead of Galaxy's full Standard
+  (2020) with 2021 Bracken files, so species abundances can differ a little.
+  It needs about 8 GB of memory; switch the Kraken2 step off on a computer
+  that has less.
 - **CheckM tree:** "Auto" uses the reduced tree on computers with less than
-  40 GB RAM (Galaxy used the full tree).
-
-The built-in workflow is now **RDH version 6**: version 5.2 plus Shigella typing
-(ShigaPass and Mykrobe) and *C. diphtheriae* tox/MLST typing, which are built-in
-tools with their own published containers. In the v2 app, **Workflows › Import
-from Galaxy** turns any Galaxy workflow file (.ga) into a workflow here
-(see [docs/TOOLS.md](docs/TOOLS.md)).
-
-## Requirements
-
-- Linux, or Windows 10/11 with WSL2 (Ubuntu)
-- Docker Engine (or Apptainer), Java 17+, Nextflow 25.04+, Python 3.10+ with PyYAML, git
-- About 10 GB of disk for databases, plus room for runs
-- 16 GB RAM or more is best (the UI warns about steps that need more than
-  this computer has)
-
-## Installing
-
-### Quick install
-
-The installer sets up the tools, gets the newest release of the pipeline and
-(on Windows) makes the desktop shortcuts. Running it again is safe.
-
-**Windows 10/11:** first install Ubuntu on WSL2 (step 1 below: `wsl --install
--d Ubuntu-24.04` as administrator, restart, open Ubuntu once). Then, in normal
-PowerShell:
-
-```powershell
-irm https://raw.githubusercontent.com/TinusTK/GenomicsWorkflowMicrobials/main/install.ps1 | iex
-```
-
-**Linux (Ubuntu/Debian) or inside Ubuntu on WSL2:**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/TinusTK/GenomicsWorkflowMicrobials/main/install.sh | bash
-```
-
-It installs into `~/GenomicsWorkflowMicrobials` (Windows: your
-Documents folder); add `-s -- <folder>` after `bash` for another folder. Then
-install the databases (step 5 below). The steps below do the same by hand.
-
-### Windows 10/11 (with WSL2)
-
-The pipeline runs inside Ubuntu on WSL2; the UI opens in your normal Windows
-browser.
-
-1. **Install Ubuntu on WSL2.** In PowerShell as administrator, then restart
-   the computer and open "Ubuntu 24.04" from the Start menu once to set up a
-   user name and password:
-
-   ```powershell
-   wsl --install -d Ubuntu-24.04
-   ```
-
-2. **Install the tools inside Ubuntu.** In the Ubuntu window:
-
-   ```bash
-   sudo apt update
-   sudo apt install -y git python3 python3-yaml openjdk-21-jre-headless docker.io curl
-   sudo usermod -aG docker $USER
-   sudo systemctl enable --now docker
-   curl -s https://get.nextflow.io | bash
-   sudo mv nextflow /usr/local/bin/
-   ```
-
-   This is Docker Engine from Ubuntu (`docker.io`), not Docker Desktop. Close
-   the Ubuntu window and open it again so the `docker` group takes effect.
-
-3. **Get the pipeline.** Still in Ubuntu, clone it into your Windows
-   Documents folder (replace `<WindowsUser>` with your Windows user name):
-
-   ```bash
-   cd "/mnt/c/Users/<WindowsUser>/Documents"
-   git clone https://github.com/TinusTK/GenomicsWorkflowMicrobials.git
-   ```
-
-4. **Make the desktop shortcuts.** In normal Windows PowerShell (not as
-   administrator), from the cloned folder:
-
-   ```powershell
-   cd "$env:USERPROFILE\Documents\GenomicsWorkflowMicrobials"
-   powershell -ExecutionPolicy Bypass -File windows\create-desktop-shortcut.ps1
-   ```
-
-   If your Ubuntu is not called `Ubuntu-24.04` (see `wsl -l`), add
-   `-Distro <name>`. This puts two shortcuts on the desktop:
-
-   | Shortcut | What it does |
-   |---|---|
-   | **Genomics Workflow Microbials** | Starts the UI inside Ubuntu and opens it in your browser (http://localhost:8642). A small minimised window stays open while you use it; closing that window stops the UI. A run that has started keeps going. |
-   | **Stop Genomics Workflow Microbials** | Stops everything: the UI, any running pipeline, Docker and WSL. If a run is still going it asks first, because stopping cancels the run (results so far are kept). Use it when you are finished, to give the memory back to Windows. |
-
-   If you move the pipeline folder, run the script again to update the
-   shortcuts.
-
-5. **Download the databases.** Double-click **Genomics Workflow Microbials**, go to
-   **Databases** and install CheckM (1.4 GB) and Kraken2 Standard-8 (7.5 GB).
-   **This computer** then shows whether everything is ready.
-
-### Linux
-
-1. Install the tools (Ubuntu/Debian shown; use your distribution's packages
-   otherwise):
-
-   ```bash
-   sudo apt update
-   sudo apt install -y git python3 python3-yaml openjdk-21-jre-headless docker.io curl
-   sudo usermod -aG docker $USER      # then log out and back in
-   sudo systemctl enable --now docker
-   curl -s https://get.nextflow.io | bash
-   sudo mv nextflow /usr/local/bin/
-   ```
-
-   On a shared server without Docker, Apptainer works too (`-profile apptainer`).
-
-2. Get the pipeline and download the databases:
-
-   ```bash
-   git clone https://github.com/TinusTK/GenomicsWorkflowMicrobials.git
-   cd GenomicsWorkflowMicrobials
-   ./ntg db install checkm_data
-   ./ntg db install kraken2_standard_8
-   ./ntg hardware                     # checks Docker, Nextflow, Java and memory
-   ```
-
-### Updating
-
-In the UI, **This computer → Updates** shows whether a newer release is on
-GitHub (the menu shows an "update" badge when there is one). **Update now**
-downloads it and restarts the UI; it waits if a run is going. Updates follow
-releases (`v1.0.0`, `v1.1.0`, …), not every change on the main branch. Or by
-hand:
-
-```bash
-cd GenomicsWorkflowMicrobials
-git fetch --tags
-git merge --ff-only v1.0.0        # the release you want
-```
-
-Your saved workflows, runs and databases are kept in `~/.ntg/` inside
-Ubuntu/Linux, not in the pipeline folder, so updating never touches them.
+  40 GB of memory (Galaxy used the full tree).
 
 ## Using it
 
-Start the UI (it opens in your browser), or on Windows double-click the
-**Genomics Workflow Microbials** desktop shortcut:
+- **New run:** pick a workflow and a folder of reads, check the sample pairs,
+  switch steps off for this run if you like, read the warnings for this
+  computer, and start.
+- **Runs:** live progress drawn as the pipeline, one results table per tool,
+  every result file, and what exactly ran. A stopped or failed run carries on
+  from where it was.
+- **Workflows:** the built-in workflow, and your own. The builder lets you add
+  steps, connect them, change settings and save; every save is a new version.
+  **Import from Galaxy** turns a workflow file saved from Galaxy (`.ga`) into
+  a workflow here, with the same tools, versions and settings.
+- **Tools:** every tool with its version and container. **Add a tool** brings
+  one in from its GitHub page; **Check for newer versions** and **See other
+  versions** add another version of a tool beside the one you have.
+- **Databases:** download the reference databases (a broken download carries
+  on where it stopped).
+- **Settings:** this computer's readiness, where things are kept, updates and
+  how to report a problem.
 
-```bash
-./ntg ui
-```
+**Reads:** a folder of `<sample>_R1….gz` / `<sample>_R2….gz` files. The app
+pairs the files automatically (`_R1/_R2`, `.R1/.R2`, `_1/_2` or `.1/.2`) or
+with your own markers, and shows every pair before you start.
 
-In the UI:
+## Where things are kept
 
-- **Workflows**: the pipeline as a graph. Click a step to see its tool,
-  version, container, Galaxy step number and every setting with a plain
-  description and Galaxy's value. Workflows open **read-only**; **Edit** makes a
-  draft, and **Save** always writes a new version (v1, v2, …), so nothing is
-  ever overwritten. Built-in workflows can only be saved as a new workflow.
-  While editing, drag the boxes to arrange the graph; the layout is saved
-  with the workflow (**Reset layout** lines them up automatically again).
-- **Run**: pick a workflow and a reads folder, switch steps off for this run
-  (anything that needs a switched-off step is skipped too), choose whether to
-  keep intermediate files, and see warnings for this computer (memory, disk,
-  missing databases, Docker) before starting.
-- **Runs & results**: live progress, summary tables, every result file,
-  the Nextflow log and the run's provenance.
-- **Tools**: installed tools and tool packs; install a pack from a git URL.
-- **Databases**: download the reference databases.
-- **This computer**: specs and what they mean for the workflow.
-
-From the command line:
-
-```bash
-./ntg run rdh_v6 /path/to/reads       # run a workflow
-./ntg db list                         # databases
-./ntg db install kraken2_standard_8
-./ntg tools packs                     # available tool packs
-./ntg tools install shigella_typing
-./ntg hardware                        # this computer's specs
-```
-
-Or with Nextflow directly (the RDH v5.2 workflow is compiled into `main.nf`):
-
-```bash
-nextflow run . -profile docker --input /path/to/reads --outdir results
-nextflow run . -profile docker --input reads --steps.kraken2 false   # skip a step
-```
-
-Reads: a folder of `<sample>_R1….gz` / `<sample>_R2….gz` files; the sample
-name is everything before `_R1` / `_R2`. The Run page pairs the files
-automatically (`_R1/_R2`, `.R1/.R2`, `_1/_2` or `.1/.2`) or with your own
-markers, and shows every pair before you start; the run keeps the pairs in
-`samples.csv`.
-
-## Results
+Each run is one folder in **Documents › Genomics Workflow Microbials**, named
+with the date and the run's name. Delete the folder to delete the run.
 
 ```
-results/
-  samples/<sample>/<step>/   each tool's per-sample output
-  combined/<step>/           tools that run on all samples at once (staramr, CheckM, QUAST)
-  summary/                   Galaxy's output tables (mlst_output.tsv, quast_output.tsv, ...)
-  pipeline_info/
-    provenance.json          pipeline commit, workflow + version, tool and database
-                             versions, container images + digests, automatic
-                             decisions (e.g. CheckM tree), every setting
-    report_*.html, timeline_*.html, trace_*.tsv, dag_*.html
+2026-11-10 11-21 My run/
+  Results/
+    samples/<sample>/<step>/   each tool's output for each sample
+    combined/<step>/           tools that run on all samples at once
+    summary/                   Galaxy's output tables
+    pipeline_info/             provenance.json, tool_versions.yml, trace.tsv
+  Run details/                 the workflow, the plan, the samples and the tools exactly as they ran
+  README.txt
 ```
 
-**Cleanup** (`--cleanup true`, off by default) deletes Nextflow's work
-folder after a successful run to save space; final results are kept. Leave it
-off to keep every intermediate file.
+Your own workflows, the tools you added, extra tool versions and the databases
+are in `~/.gwm` (on Windows, on the Linux side). **Settings** shows each
+folder and opens it.
 
 ## Adding tools
 
-Each tool is a folder with a `tool.yml` (container, inputs, outputs, settings
-with descriptions, command). A **tool pack** points at another git repository,
-pins a commit, and says how to get its container; see
-[`docs/TOOLS.md`](docs/TOOLS.md) and the examples in [`tools/`](tools/) and
-[`packs/`](packs/).
+The app is meant to work with any tool that has a GitHub page.
+
+1. **Tools › Add a tool**, and paste the tool's GitHub link.
+2. The app reads the tool's name, description, licence and newest release,
+   and looks for its container on [BioContainers](https://biocontainers.pro).
+3. The editor opens. It shows the names to use in the command, a list of what
+   is still to do, **Show the tool's help** (the tool's own help text) and
+   **Try on one sample**, which runs the command once and shows what it made.
+4. Switch on **Ready to use** and save. The tool is now in the workflow builder.
+
+Everything is kept on your computer; nothing is changed on GitHub. A
+repository that carries its own definition for this app (`gwm/tool.yml`)
+installs with no editing: see [docs/TOOLS.md](docs/TOOLS.md).
+
+## Help and reporting problems
+
+If a tool will not install or run, or anything else goes wrong:
+
+- [Open an issue](https://github.com/TinusTK/GenomicsWorkflowMicrobials/issues/new)
+  (needs a free GitHub account), with the tool's GitHub link and what happened, or
+- email **t.k.business@outlook.com**.
+
+Both are also under **Settings › Report an issue** in the app.
+
+## For developers
+
+The app is written in Rust (`rust/`): `gwm-core` (tools, workflows, the
+compiler), `gwm-engine` (runs each tool in its container, resume, provenance),
+`gwm-server` (the local API), `gwm-cli` (the `gwm` command), `rust/gui`
+(Svelte) and `rust/desktop` (Tauri). Tools are in `tools/`, the built-in
+workflow in `workflows/`, the database list in `databases/`.
+
+```bash
+cd rust
+cargo test --workspace
+cargo run -p gwm-cli -- serve --port 8642 --gui gui/dist   # after: cd gui && npm ci && npm run build
+```
+
+Installers are built by `.github/workflows/release.yml` when a `v2*` tag is pushed.
 
 ## Citing
 
-If you use this pipeline, please cite this repository (see
+If you use this app, please cite this repository (see
 [`CITATION.cff`](CITATION.cff)) and the tools it runs (each tool's citation is
-in its `tool.yml` and shown in the UI).
+shown on the Tools page).
 
 ## License
 
-MIT, see [`LICENSE`](LICENSE). The tools the pipeline runs keep their own
-licenses; the pipeline only pulls their published containers.
+MIT, see [`LICENSE`](LICENSE). The tools the app runs keep their own licences;
+the app only pulls their published containers.

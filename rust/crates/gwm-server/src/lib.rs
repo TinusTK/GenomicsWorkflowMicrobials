@@ -5,6 +5,7 @@
 pub mod hardware;
 pub mod import;
 pub mod jobs;
+pub mod tooledit;
 
 use std::fs;
 use std::net::SocketAddr;
@@ -94,7 +95,15 @@ pub async fn serve(addr: SocketAddr, cat: Catalog, gui: Option<PathBuf>) -> anyh
         .route("/api/workflows/import", post(import_workflow))
         .route("/api/workflows/{id}", get(get_workflow).delete(delete_workflow))
         .route("/api/tools", get(list_tools))
+        .route("/api/tools/add", post(add_tool))
+        .route("/api/tools/updates", get(tool_updates))
+        .route("/api/tools/{id}", axum::routing::delete(delete_tool))
         .route("/api/tools/{id}/outputs", post(set_tool_outputs))
+        .route("/api/tools/{id}/definition", post(save_tool))
+        .route("/api/tools/{id}/help", post(tool_help))
+        .route("/api/tools/{id}/try", post(try_tool))
+        .route("/api/tools/{id}/versions", get(tool_versions).post(add_tool_version))
+        .route("/api/update", get(app_update))
         .route("/api/databases", get(list_databases))
         .route("/api/databases/{id}/install", post(install_database))
         .route("/api/jobs/{id}", get(get_job))
@@ -298,6 +307,72 @@ async fn set_tool_outputs(State(a): State<App>, UrlPath(id): UrlPath<String>, Js
     let hidden: Vec<String> = b.hidden.into_iter().filter(|o| tool.outputs.contains_key(o)).collect();
     import::set_hidden_outputs(&a.cat, &id, hidden.clone())?;
     ok(json!({"hidden_outputs": hidden}))
+}
+
+#[derive(Deserialize)]
+struct AddToolReq {
+    /// the tool's GitHub link
+    url: String,
+}
+
+/// Add a tool from its GitHub repository (a draft to finish in the editor,
+/// unless the repository carries its own definition).
+async fn add_tool(State(a): State<App>, Json(b): Json<AddToolReq>) -> Api {
+    ok(tokio::task::spawn_blocking(move || tooledit::add_from_github(&a.cat, &b.url)).await??)
+}
+
+async fn save_tool(State(a): State<App>, UrlPath(id): UrlPath<String>, Json(b): Json<tooledit::Definition>) -> Api {
+    tooledit::save_definition(&a.cat, &id, b)?;
+    ok(json!({"ok": true}))
+}
+
+async fn delete_tool(State(a): State<App>, UrlPath(id): UrlPath<String>) -> Api {
+    tooledit::delete_tool(&a.cat, &id)?;
+    ok(json!({"ok": true}))
+}
+
+#[derive(Deserialize)]
+struct HelpReq {
+    /// the program to ask, as typed in a terminal
+    program: String,
+}
+
+async fn tool_help(State(a): State<App>, UrlPath(id): UrlPath<String>, Json(b): Json<HelpReq>) -> Api {
+    let cat = a.cat.clone();
+    ok(jobs::spawn("Show the tool's help", move |r| {
+        tooledit::show_help(&cat, &id, &b.program, r)
+    }))
+}
+
+async fn try_tool(State(a): State<App>, UrlPath(id): UrlPath<String>, Json(b): Json<tooledit::TryRequest>) -> Api {
+    let cat = a.cat.clone();
+    ok(jobs::spawn("Try on one sample", move |r| {
+        tooledit::try_tool(&cat, &id, b, r)
+    }))
+}
+
+async fn tool_versions(State(a): State<App>, UrlPath(id): UrlPath<String>) -> Api {
+    ok(tokio::task::spawn_blocking(move || tooledit::versions(&a.cat, &id)).await??)
+}
+
+#[derive(Deserialize)]
+struct AddVersionReq {
+    version: String,
+}
+
+async fn add_tool_version(State(a): State<App>, UrlPath(id): UrlPath<String>, Json(b): Json<AddVersionReq>) -> Api {
+    tokio::task::spawn_blocking(move || tooledit::add_version(&a.cat, &id, &b.version)).await??;
+    ok(json!({"ok": true}))
+}
+
+/// Tools with a newer version than any on this computer.
+async fn tool_updates(State(a): State<App>) -> Api {
+    ok(tokio::task::spawn_blocking(move || tooledit::newer_versions(&a.cat)).await??)
+}
+
+/// Is there a newer release of the app?
+async fn app_update() -> Api {
+    ok(tokio::task::spawn_blocking(tooledit::app_update).await??)
 }
 
 async fn list_databases(State(a): State<App>) -> Api {

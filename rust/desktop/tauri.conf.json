@@ -34,7 +34,6 @@
       "../../tools/": "tools/",
       "../../workflows/": "workflows/",
       "../../databases/": "databases/",
-      "../../packs/": "packs/",
       "bin/": "bin/",
       "wsl/": "wsl/"
     },

@@ -135,8 +135,15 @@ export interface Tool {
   folder?: string;
   /** outputs switched off for the Run page (all show by default) */
   hidden_outputs: string[];
-  /** imported from Galaxy, its command is not written yet */
+  /** not ready: its command is not written yet (workflows refuse to run it) */
   draft?: boolean;
+  command?: string;
+  resources?: { cpus?: number; memory_gb?: number };
+  version_command?: string;
+  /** the program the editor asks for its help text */
+  program?: string;
+  /** added from this GitHub repository */
+  github?: { repo: string; branch?: string };
 }
 
 /** One step of a Galaxy workflow and what the import makes of it. */
@@ -176,6 +183,8 @@ export interface Job {
   status: 'running' | 'done' | 'failed';
   log: string[];
   progress: [number, number] | null;
+  /** what the work found (a tool's help text, what a trial made) */
+  result?: unknown;
 }
 
 export interface Sample {

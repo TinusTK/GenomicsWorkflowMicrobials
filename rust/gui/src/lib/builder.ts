@@ -78,7 +78,7 @@ export function problems(wf: Workflow, tools: Record<string, Tool>): Problem[] {
     const tool = tools[st.tool];
     const name = st.label ?? sid;
     if (!tool) {
-      out.push({ step: sid, message: `${name} uses the tool "${st.tool}", which is not installed. Install its tool pack on the Tools page.` });
+      out.push({ step: sid, message: `${name} uses the tool "${st.tool}", which is not on this computer. Add it on the Tools page.` });
       continue;
     }
     for (const [inp, spec] of Object.entries(tool.inputs)) {

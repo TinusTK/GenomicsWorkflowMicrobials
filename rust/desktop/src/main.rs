@@ -27,6 +27,8 @@ struct Backend {
     child: Mutex<Option<Child>>,
     /// why it isn't running: "wsl", "distro" (setup needed) or an error text
     problem: Mutex<Option<String>>,
+    /// the app has a system tray icon: closing the window hides it there
+    in_tray: Mutex<bool>,
 }
 
 #[derive(Serialize)]
@@ -35,6 +37,8 @@ struct Status {
     problem: Option<String>,
     windows: bool,
     distro: String,
+    /// closing the window keeps the app in the system tray
+    tray: bool,
 }
 
 fn answering() -> bool {
@@ -156,7 +160,13 @@ fn ensure(app: &tauri::AppHandle) {
 
 #[tauri::command]
 fn backend_status(state: State<Backend>) -> Status {
-    Status { running: answering(), problem: state.problem.lock().unwrap().clone(), windows: cfg!(windows), distro: distro() }
+    Status {
+        running: answering(),
+        problem: state.problem.lock().unwrap().clone(),
+        windows: cfg!(windows),
+        distro: distro(),
+        tray: *state.in_tray.lock().unwrap(),
+    }
 }
 
 #[tauri::command]
@@ -231,14 +241,88 @@ fn setup_docker() -> Result<(), String> {
     Err("Install Docker Engine (Linux) or Colima (Mac), then press Check again.".into())
 }
 
+/// Open a web page or a new email in the system's browser or mail program.
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    if !(url.starts_with("https://") || url.starts_with("mailto:")) {
+        return Err("only web and email links can be opened".into());
+    }
+    #[cfg(windows)]
+    let mut cmd = {
+        let mut c = Command::new("rundll32.exe");
+        c.arg("url.dll,FileProtocolHandler").creation_flags(NO_WINDOW);
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut cmd = Command::new("open");
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut cmd = Command::new("xdg-open");
+    cmd.arg(&url).spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
+/// Bring the window back (from the system tray, or when the app is started again).
+fn show_window(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+/// The system tray icon: click to open the window, right-click for Open and Quit.
+#[cfg(not(target_os = "linux"))]
+fn tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+    let open = MenuItem::with_id(app, "open", "Open Genomics Workflow Microbials", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &quit])?;
+    let mut tray = TrayIconBuilder::with_id("main")
+        .tooltip("Genomics Workflow Microbials")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "open" => show_window(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                show_window(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app)?;
+    Ok(())
+}
+
 fn main() {
     let app = tauri::Builder::default()
+        // started a second time: show the window that is already there
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_window(app)))
         .manage(Backend::default())
-        .invoke_handler(tauri::generate_handler![backend_status, restart_backend, open_folder, setup_wsl, setup_docker])
+        .invoke_handler(tauri::generate_handler![backend_status, restart_backend, open_folder, open_url, setup_wsl, setup_docker])
         .setup(|app| {
             let handle = app.handle().clone();
+            #[cfg(not(target_os = "linux"))]
+            let in_tray = tray(&handle).is_ok();
+            #[cfg(target_os = "linux")]
+            let in_tray = false;
+            *app.state::<Backend>().in_tray.lock().unwrap() = in_tray;
             std::thread::spawn(move || ensure(&handle));
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // with a tray icon, closing the window keeps the app there (Quit is in the icon's menu)
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if *window.state::<Backend>().in_tray.lock().unwrap() {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .build(tauri::generate_context!())
         .expect("starting Genomics Workflow Microbials");

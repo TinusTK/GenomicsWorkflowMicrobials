@@ -203,7 +203,7 @@ fn an_unknown_tool_becomes_a_draft() {
     let wf = cat.load_workflow(&done.id, None).unwrap();
     compiler::resolve(&wf, &tools).unwrap();
     let e = compiler::plan(&wf, &tools, &cat.load_databases().unwrap()).unwrap_err();
-    assert!(e.to_string().contains("has no command yet"), "{e}");
+    assert!(e.to_string().contains("is not ready yet"), "{e}");
 }
 
 #[test]

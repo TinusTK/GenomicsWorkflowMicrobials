@@ -7,7 +7,7 @@
     { page: 'home', label: 'Home', icon: 'home' },
     { page: 'runs', label: 'Runs', icon: 'list' },
     { page: 'workflows', label: 'Workflows', icon: 'flow' },
-    { page: 'tools', label: 'Tools and packs', icon: 'tool' },
+    { page: 'tools', label: 'Tools', icon: 'tool' },
     { page: 'databases', label: 'Databases', icon: 'db' },
     { page: 'settings', label: 'Settings', icon: 'settings' },
   ];

@@ -1,8 +1,14 @@
-# Writing tools and tool packs
+# Tools: how they are described, added and edited
+
+Most people never need this page: **Tools › Add a tool** in the app takes a
+GitHub link and its editor writes the `tool.yml` for you (see
+[Adding a tool from GitHub](#adding-a-tool-from-github)). This is the format
+underneath.
 
 ## tool.yml
 
-A tool is a folder `tools/<id>/` with a `tool.yml` and any files it needs.
+A tool is a folder with a `tool.yml` and any files it needs. Built-in tools
+are in `tools/<id>/`; tools added on a computer are in `~/.gwm/tools/`.
 
 ```yaml
 id: mytool                 # lowercase letters, digits, _
@@ -80,59 +86,56 @@ list of sources means "the first one that runs", e.g.
 `reads: [fastp.reads, input]` uses raw reads when fastp is off.
 `extends: <id>` starts from another workflow's steps.
 
-Built-in workflows are read-only. Workflows saved from the UI go to
-`~/.ntg/workflows/<id>/v<N>.yml`, one file per version; user workflows can be
-deleted (all versions), built-ins can't.
+Built-in workflows are read-only. Workflows saved in the app go to
+`~/.gwm/workflows/<id>/v<N>.yml`, one file per version; your own workflows can
+be deleted (all versions), built-ins can't.
 
 `tool_version: <version>` on a step picks another installed version of its
 tool; without it the tool's own version is used. Extra versions are added on
-the Tools page (BioContainers tags from quay.io for built-in tools, a commit of
-the pack's repository for tool packs) and live in
-`~/.ntg/tool_versions/<tool>/<version>/tool.yml`, next to the original. A new
-version is `untested: true` until a run that used it succeeds.
+the Tools page (**See other versions**, or **Check for newer versions**: the
+BioContainers images of the tool on quay.io) and live in
+`~/.gwm/tool_versions/<tool>/<version>/tool.yml`, next to the original.
 
-## Tool packs
+## Adding a tool from GitHub
 
-A tool pack brings tools from another git repository. It is a file in
-`packs/` (or `ntg/pack.yml` inside the tool's own repository, for install from
-a git URL):
+**Tools › Add a tool** takes the link to a tool's GitHub page. Nothing on
+GitHub is changed; the tool is kept in `~/.gwm/tools/github/<id>/`.
 
-```yaml
-id: my_pack
-name: My pack
-repo: https://github.com/owner/repo
-commit: <full commit hash>      # what gets installed; update to upgrade
-updates: auto                   # what counts as an update (optional, see below)
-description: ...
-container:
-  image: quay.io/...            # a published image, or:
-  build:
-    environment_file: environment.yml     # conda env in the repo, or
-    # channels: [conda-forge, bioconda]
-    # dependencies: [blast=2.16.0, python=3.12]
-tools:
-  - id: ...                     # same fields as tool.yml
-    files: [tool/script.py, database]     # paths inside the repo
+**A repository with its own definition** installs as it is. Put a `tool.yml`
+(the format above) in a folder called `gwm/` at the top of the repository;
+the files it lists under `files:` are taken from that same folder:
+
+```
+gwm/tool.yml
+gwm/script.py        # listed as files: [script.py]
 ```
 
-Installing clones the repo at the pinned commit, builds the container from
-the conda environment (micromamba) when needed, and copies each tool's files
-to `~/.ntg/tools/<pack>/<tool>/`. The pack's repo and commit are recorded with
-each tool and shown in the UI.
+**Any other repository** becomes a draft. The app fills in what it can find:
 
-`updates` says when the Tools page shows a pack as having a newer version:
+- name, description, licence and website, from GitHub;
+- the version, from the newest release;
+- the container, from BioContainers: it looks for the package named in the
+  README (a bioconda badge or a `conda install` line) and then for the
+  repository's own name. With none found, the container address is typed in
+  the editor (any public image with the tool installed, at one exact tag).
 
-- `releases`: a release tag newer than the installed one (`v1.2.0` or `1.2`).
-  Tags with a suffix, such as `v1.2.0-galaxy1` or `v1.3.0-rc1`, don't count.
-- `main`: any commit on the repo's main branch that isn't installed.
-- `auto` (default): `releases` if the repo has a release tag, else `main`.
+The draft opens in the editor, where the command, inputs and outputs are
+filled in. The editor lists the names the command can use, checks the form as
+you type, shows the tool's own help text (**Show the tool's help**) and runs
+the command once on one sample (**Try on one sample**), listing the files it
+made and how each will show on a run's page. A draft can't be run in a
+workflow until **Ready to use** is switched on (`draft: true` is then taken
+out of its `tool.yml`).
 
-Each computer can change it per pack on the Tools page (saved in
-`~/.ntg/pack_updates.json`).
+Tools made by a Galaxy import (below) are edited the same way.
+
+If a tool will not install or run, please
+[open an issue](https://github.com/TinusTK/GenomicsWorkflowMicrobials/issues/new)
+with its GitHub link.
 
 ## Importing a Galaxy workflow
 
-**Workflows › Import from Galaxy** (v2 app) reads a workflow file saved from
+**Workflows › Import from Galaxy** reads a workflow file saved from
 Galaxy (`.ga`) and makes a workflow here with the same tools, versions,
 settings and wiring. It shows what each Galaxy step becomes before anything
 is added:
@@ -144,7 +147,8 @@ is added:
 - **New tool**: a tool the app does not know. A draft goes in
   `~/.gwm/tools/galaxy_import/<tool>/tool.yml` with its pinned container,
   inputs, outputs and settings. A `.ga` file has no command lines, so the
-  `command:` has to be written by hand; remove `draft: true` when it is.
+  command is written in the tool editor (Tools page, open the tool, **Finish
+  this tool**).
 - **Summary tables**: Galaxy text and collection steps (cut, join, collapse ...)
   that the `summary` tool covers.
 - **Left out**: nothing here matches.
