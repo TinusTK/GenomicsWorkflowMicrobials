@@ -1,4 +1,4 @@
-# NTGPathologyGenomicsWorkflowPipeline
+# Genomics Workflow Microbials
 
 A stand-alone version of the Galaxy Australia workflow **"Genomic Assembly and
 analysis - RDH version 5.2"**, which types bacterial isolates from paired
@@ -11,7 +11,7 @@ its results.
 The original Galaxy workflow is in [`reference/`](reference/).
 
 > **Version 1.0.0** (Microbial Pipeline). See
-> [Releases](https://github.com/TinusTK/NTGPathologyGenomicsWorkflowPipeline/releases).
+> [Releases](https://github.com/TinusTK/GenomicsWorkflowMicrobials/releases).
 
 ## What it does
 
@@ -63,16 +63,16 @@ The installer sets up the tools, gets the newest release of the pipeline and
 PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/TinusTK/NTGPathologyGenomicsWorkflowPipeline/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/TinusTK/GenomicsWorkflowMicrobials/main/install.ps1 | iex
 ```
 
 **Linux (Ubuntu/Debian) or inside Ubuntu on WSL2:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TinusTK/NTGPathologyGenomicsWorkflowPipeline/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/TinusTK/GenomicsWorkflowMicrobials/main/install.sh | bash
 ```
 
-It installs into `~/NTGPathologyGenomicsWorkflowPipeline` (Windows: your
+It installs into `~/GenomicsWorkflowMicrobials` (Windows: your
 Documents folder); add `-s -- <folder>` after `bash` for another folder. Then
 install the databases (step 5 below). The steps below do the same by hand.
 
@@ -108,14 +108,14 @@ browser.
 
    ```bash
    cd "/mnt/c/Users/<WindowsUser>/Documents"
-   git clone https://github.com/TinusTK/NTGPathologyGenomicsWorkflowPipeline.git
+   git clone https://github.com/TinusTK/GenomicsWorkflowMicrobials.git
    ```
 
 4. **Make the desktop shortcuts.** In normal Windows PowerShell (not as
    administrator), from the cloned folder:
 
    ```powershell
-   cd "$env:USERPROFILE\Documents\NTGPathologyGenomicsWorkflowPipeline"
+   cd "$env:USERPROFILE\Documents\GenomicsWorkflowMicrobials"
    powershell -ExecutionPolicy Bypass -File windows\create-desktop-shortcut.ps1
    ```
 
@@ -124,13 +124,13 @@ browser.
 
    | Shortcut | What it does |
    |---|---|
-   | **NTG Genomics Pipeline** | Starts the UI inside Ubuntu and opens it in your browser (http://localhost:8642). A small minimised window stays open while you use it; closing that window stops the UI. A run that has started keeps going. |
-   | **Stop NTG Genomics Pipeline** | Stops everything: the UI, any running pipeline, Docker and WSL. If a run is still going it asks first, because stopping cancels the run (results so far are kept). Use it when you are finished, to give the memory back to Windows. |
+   | **Genomics Workflow Microbials** | Starts the UI inside Ubuntu and opens it in your browser (http://localhost:8642). A small minimised window stays open while you use it; closing that window stops the UI. A run that has started keeps going. |
+   | **Stop Genomics Workflow Microbials** | Stops everything: the UI, any running pipeline, Docker and WSL. If a run is still going it asks first, because stopping cancels the run (results so far are kept). Use it when you are finished, to give the memory back to Windows. |
 
    If you move the pipeline folder, run the script again to update the
    shortcuts.
 
-5. **Download the databases.** Double-click **NTG Genomics Pipeline**, go to
+5. **Download the databases.** Double-click **Genomics Workflow Microbials**, go to
    **Databases** and install CheckM (1.4 GB) and Kraken2 Standard-8 (7.5 GB).
    **This computer** then shows whether everything is ready.
 
@@ -153,8 +153,8 @@ browser.
 2. Get the pipeline and download the databases:
 
    ```bash
-   git clone https://github.com/TinusTK/NTGPathologyGenomicsWorkflowPipeline.git
-   cd NTGPathologyGenomicsWorkflowPipeline
+   git clone https://github.com/TinusTK/GenomicsWorkflowMicrobials.git
+   cd GenomicsWorkflowMicrobials
    ./ntg db install checkm_data
    ./ntg db install kraken2_standard_8
    ./ntg hardware                     # checks Docker, Nextflow, Java and memory
@@ -169,7 +169,7 @@ releases (`v1.0.0`, `v1.1.0`, …), not every change on the main branch. Or by
 hand:
 
 ```bash
-cd NTGPathologyGenomicsWorkflowPipeline
+cd GenomicsWorkflowMicrobials
 git fetch --tags
 git merge --ff-only v1.0.0        # the release you want
 ```
@@ -180,7 +180,7 @@ Ubuntu/Linux, not in the pipeline folder, so updating never touches them.
 ## Using it
 
 Start the UI (it opens in your browser), or on Windows double-click the
-**NTG Genomics Pipeline** desktop shortcut:
+**Genomics Workflow Microbials** desktop shortcut:
 
 ```bash
 ./ntg ui

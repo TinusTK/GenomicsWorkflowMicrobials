@@ -1,14 +1,14 @@
-# NTG Genomics Pipeline v2: the Rust app (see rust/README.md).
+# Genomics Workflow Microbials v2: the Rust app.
 # The Python app in app/ stays until this one passes the same test runs.
 [workspace]
 resolver = "2"
-members = ["crates/ntg-core", "crates/ntg-cli"]
+members = ["crates/gwm-core", "crates/gwm-engine", "crates/gwm-cli"]
 
 [workspace.package]
 version = "2.0.0-dev"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/TinusTK/NTGPathologyGenomicsWorkflowPipeline"
+repository = "https://github.com/TinusTK/GenomicsWorkflowMicrobials"
 
 [workspace.dependencies]
 anyhow = "1"
@@ -20,4 +20,5 @@ indexmap = { version = "2", features = ["serde"] }
 regex = "1"
 dirs = "6"
 clap = { version = "4", features = ["derive"] }
-ntg-core = { path = "crates/ntg-core" }
+gwm-core = { path = "crates/gwm-core" }
+gwm-engine = { path = "crates/gwm-engine" }

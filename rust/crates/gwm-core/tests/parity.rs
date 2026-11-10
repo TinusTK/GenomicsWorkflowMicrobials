@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ntg_core::{compiler, Catalog};
+use gwm_core::{compiler, Catalog};
 use serde_json::Value;
 
 fn repo_root() -> PathBuf {
@@ -17,7 +17,7 @@ fn repo_root() -> PathBuf {
 
 fn catalog() -> Catalog {
     // empty home: built-in tools and workflows only
-    let home = std::env::temp_dir().join(format!("ntg-test-empty-{}", std::process::id()));
+    let home = std::env::temp_dir().join(format!("gwm-test-empty-{}", std::process::id()));
     Catalog::new(repo_root(), home)
 }
 

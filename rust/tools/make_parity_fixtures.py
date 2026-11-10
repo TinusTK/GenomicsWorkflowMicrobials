@@ -1,4 +1,4 @@
-"""Writes rust/crates/ntg-core/tests/fixtures/<workflow>.json from the v1 Python
+"""Writes rust/crates/gwm-core/tests/fixtures/<workflow>.json from the v1 Python
 compiler, so the Rust compiler can be checked against it (cargo test).
 Run from the repo root with an empty NTG_HOME:  NTG_HOME=$(mktemp -d) python3 rust/tools/make_parity_fixtures.py
 """
@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from app import catalog, compiler  # noqa: E402
 
-out = Path(__file__).resolve().parents[1] / "crates/ntg-core/tests/fixtures"
+out = Path(__file__).resolve().parents[1] / "crates/gwm-core/tests/fixtures"
 out.mkdir(parents=True, exist_ok=True)
 tools = catalog.load_tools()
 for wf in catalog.builtin_workflows():

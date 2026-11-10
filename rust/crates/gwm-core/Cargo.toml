@@ -1,5 +1,5 @@
 [package]
-name = "ntg-core"
+name = "gwm-core"
 description = "Tools, workflows, databases and the workflow compiler (run plan)"
 version.workspace = true
 edition.workspace = true

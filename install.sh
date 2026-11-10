@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # NTG pathology genomics pipeline - installer for Linux and Ubuntu on WSL2.
-#   curl -fsSL https://raw.githubusercontent.com/TinusTK/NTGPathologyGenomicsWorkflowPipeline/main/install.sh | bash
-#   ... | bash -s -- <folder>          install into <folder> (default ~/NTGPathologyGenomicsWorkflowPipeline)
+#   curl -fsSL https://raw.githubusercontent.com/TinusTK/GenomicsWorkflowMicrobials/main/install.sh | bash
+#   ... | bash -s -- <folder>          install into <folder> (default ~/GenomicsWorkflowMicrobials)
 #
 # Installs the tools (git, Python + PyYAML, Java 21, Docker Engine, Nextflow) with
 # apt, then clones the newest release of the pipeline. Running it again is safe:
@@ -9,8 +9,8 @@
 # installed them yourself, or have no apt).
 set -euo pipefail
 
-REPO="https://github.com/TinusTK/NTGPathologyGenomicsWorkflowPipeline.git"
-DEST="${1:-$HOME/NTGPathologyGenomicsWorkflowPipeline}"
+REPO="https://github.com/TinusTK/GenomicsWorkflowMicrobials.git"
+DEST="${1:-$HOME/GenomicsWorkflowMicrobials}"
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 
 # All in a function, so bash has read the whole script before anything runs

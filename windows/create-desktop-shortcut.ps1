@@ -1,4 +1,4 @@
-# Puts an "NTG Genomics Pipeline" shortcut on the Windows desktop that starts
+# Puts an "Genomics Workflow Microbials" shortcut on the Windows desktop that starts
 # the UI inside WSL and opens it in the browser.
 #   powershell -ExecutionPolicy Bypass -File windows\create-desktop-shortcut.ps1 [-Distro Ubuntu-24.04]
 param(
@@ -14,7 +14,7 @@ if (-not $RepoWslPath) {
 }
 
 $desktop = [Environment]::GetFolderPath("Desktop")
-$lnk = Join-Path $desktop "NTG Genomics Pipeline.lnk"
+$lnk = Join-Path $desktop "Genomics Workflow Microbials.lnk"
 $shell = New-Object -ComObject WScript.Shell
 $s = $shell.CreateShortcut($lnk)
 $s.TargetPath = "$env:SystemRoot\System32\wsl.exe"
@@ -27,7 +27,7 @@ $s.Save()
 Write-Host "Created $lnk"
 
 # "Stop" shortcut: closes the UI, running pipelines, Docker and WSL (asks first if a run is going)
-$stop = Join-Path $desktop "Stop NTG Genomics Pipeline.lnk"
+$stop = Join-Path $desktop "Stop Genomics Workflow Microbials.lnk"
 $t = $shell.CreateShortcut($stop)
 $t.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 $t.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$(Join-Path $PSScriptRoot 'stop-pipeline.ps1')`""

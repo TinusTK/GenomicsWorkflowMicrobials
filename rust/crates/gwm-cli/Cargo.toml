@@ -1,0 +1,19 @@
+[package]
+name = "gwm-cli"
+description = "gwm command line: compile workflows, list tools and databases"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "gwm"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+gwm-core.workspace = true
+gwm-engine.workspace = true
+ctrlc = "3"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }

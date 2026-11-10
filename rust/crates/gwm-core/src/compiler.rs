@@ -10,12 +10,12 @@
 //!   IN_<input>_DIR                all-sample input: folder holding every sample's file
 //!   DB_<database>                 database folder
 //!   TOOL_DIR                      the tool's own folder (bundled scripts)
-//!   write results under out/; notes for provenance go in .ntg_notes ("key: value" lines)
+//!   write results under out/; notes for provenance go in .ntg_notes ("key: value" lines; name kept from v1)
 
 use std::collections::HashSet;
 
 use indexmap::IndexMap;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 
 use crate::catalog::{step_tool, Database, Resources, Step, Tool, Workflow, ID_RE};
@@ -171,7 +171,7 @@ pub fn runnable(wf: &Workflow, tools: &IndexMap<String, Tool>) -> Result<IndexMa
 // ---------------------------------------------------------------- run plan
 
 /// Everything the engine needs to run a workflow; saved as plan.json in the run.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Plan {
     pub workflow_id: String,
     pub workflow_version: u32,
@@ -182,7 +182,7 @@ pub struct Plan {
     pub databases: IndexMap<String, String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanStep {
     pub id: String,
     pub label: String,
@@ -211,7 +211,7 @@ pub struct PlanStep {
     pub command: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanInput {
     pub reads: bool,
     pub optional: bool,
@@ -219,7 +219,7 @@ pub struct PlanInput {
     pub sources: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanOutput {
     pub path: String,
     pub optional: bool,

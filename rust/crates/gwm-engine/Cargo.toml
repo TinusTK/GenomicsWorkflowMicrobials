@@ -1,0 +1,21 @@
+[package]
+name = "gwm-engine"
+description = "Runs a workflow plan: tasks in containers, resume, results, provenance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+indexmap.workspace = true
+gwm-core.workspace = true
+globset = "0.4"
+walkdir = "2"
+sha2 = "0.10"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+sysinfo = { version = "0.37", default-features = false, features = ["system"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
