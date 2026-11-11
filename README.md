@@ -1,9 +1,18 @@
 # Genomics Workflow Microbials
 
-A desktop app for typing bacterial isolates from paired Illumina reads. It
-runs the Galaxy Australia workflow **"Genomic Assembly and analysis - RDH
-version 6"** on your own computer, without Galaxy, and lets you build your own
-workflows from the same tools or from tools you add.
+Built for the Department of Health Northern Territory Pathology Genomics, and
+for anyone who wants an easy-to-use tool.
+
+A desktop app for typing bacterial isolates from paired Illumina reads, or your
+own FASTQ reads, on your own computer. It supports your whole genome sequencing
+work without the burden of the command line. It runs Galaxy workflows without
+Galaxy, and gives you an easy way to install any bioinformatics tool from
+GitHub, so you can bring the tools your work needs. You can also build your own
+workflows from these tools.
+
+Have an issue or a problem? I am here to help. I give support and can make the
+app work with other tools: open an
+[issue](https://github.com/TinusTK/GenomicsWorkflowMicrobials/issues).
 
 - **One installer** for Windows, Mac and Linux. No Nextflow, Java or Python to set up.
 - **Every tool in its own container at a fixed version**, so results are repeatable.
