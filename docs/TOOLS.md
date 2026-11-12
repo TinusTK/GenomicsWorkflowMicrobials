@@ -93,7 +93,9 @@ be deleted (all versions), built-ins can't.
 `tool_version: <version>` on a step picks another installed version of its
 tool; without it the tool's own version is used. Extra versions are added on
 the Tools page (**See other versions**, or **Check for newer versions**: the
-BioContainers images of the tool on quay.io) and live in
+BioContainers images of the tool on quay.io, or, for a tool whose container is
+on GitHub's registry such as the built-in typing tools, the newer tags of
+`ghcr.io/<owner>/<name>`) and live in
 `~/.gwm/tool_versions/<tool>/<version>/tool.yml`, next to the original.
 
 ## Adding a tool from GitHub
@@ -122,20 +124,26 @@ gwm/script.py        # listed as files: [script.py]
 
 - name, description, licence and website, from GitHub;
 - the version, from the newest release;
-- the container, from BioContainers: it looks for the package named in the
-  README (a bioconda badge or a `conda install` line) and then for the
-  repository's own name. With none found, the app builds one on the computer
-  (below), or its address is typed in the editor (any public image with the
-  tool installed, at one exact tag).
+- the container. A repository with its own container recipe (`Dockerfile`)
+  or conda environment file (`environment.yml`) gets its container built
+  from that on the computer: those are the program versions its authors
+  work with. When BioContainers also has the tool (the package named in the
+  README by a bioconda badge or a `conda install` line, or the repository's
+  own name), that ready-made image is the other choice in the editor
+  (**Where the tool is installed from**; kept in the tool as `ready_made:`).
+  A repository with neither file uses the BioContainers image; with none of
+  that, a container is built from its Python package (`pyproject.toml` or
+  `setup.py`), or its address is typed in the editor (any public image with
+  the tool installed, at one exact tag).
 
-**A tool with no ready-made container** gets one built on the computer by
-**Set it up for me**, from what its repository offers, tried in this order:
-its own `Dockerfile`, a conda environment file (`environment.yml`), a Python
-package (`pyproject.toml` or `setup.py`). The build takes several minutes,
-once, and needs Docker (not Apptainer). The image is named
+**Building a container** is done by **Set it up for me**. It takes several
+minutes, once, and needs Docker (not Apptainer). The repository is built at
+its newest release (the main branch when it has none). The image is named
 `gwm-local/<tool>:<version>-<commit>` and stays on that computer: another
 computer builds its own from the same commit, which is recorded in the tool
-(`built:`).
+(`built:`). Neither route proves a tool right: an environment file can be
+out of date and a ready-made image can be broken (tbtAMR had both), so try a
+new tool on a sample whose result is known.
 
 The draft opens in the editor. **Set it up for me** does the rest when it can:
 
@@ -205,11 +213,21 @@ importing the RDH `.ga` files in `reference/` gives the built-in workflow.
 ## Tool containers built by this repository
 
 Tools with no BioContainers image (Shigella typing, C. diphtheriae typing,
-MLST typing) get
+MLST typing), and tbtAMR, whose BioContainers image is broken (its Dockerfile
+says how), get
 theirs from `containers/<name>/Dockerfile`, built and published by
 `.github/workflows/containers.yml` as `ghcr.io/tinustk/gwm-<name>:<version>`.
 A published version is never built over: change the version in the workflow
 file and in the tool's `tool.yml` together.
+
+Once a day the same workflow (job `new-releases`) looks at each tool's own
+repository. When its newest release is not the one the app comes with, the
+tool's Dockerfile is built at that release and published as
+`gwm-<name>:<release tag without the v>`. The app's **Check for newer
+versions** finds it, and **Add this version** puts it beside the built-in
+one, with the built-in version's command and settings. New options of a
+release reach the app only when the built-in `tool.yml` is updated (and the
+`release` in the workflow's `new-releases` list with it).
 
 ## Summary tables: an input that takes any number of outputs
 

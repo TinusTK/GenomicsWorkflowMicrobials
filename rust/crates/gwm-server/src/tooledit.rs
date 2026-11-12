@@ -22,7 +22,7 @@ use serde::Deserialize;
 use serde_json::json;
 use serde_yaml::{Mapping, Value};
 
-use crate::import::{biocontainer_versions, version_key};
+use crate::import::{biocontainer_versions, ghcr_image, ghcr_versions, version_key};
 use crate::jobs::Reporter;
 
 /// The folder under the data folder's tools/ that tools added from GitHub go in.
@@ -187,12 +187,31 @@ fn recipe(cat: &Catalog, full: &str) -> Option<String> {
     .or_else(|| fs::read_to_string(cat.root.join("recipes").join(&name)).ok())
 }
 
+/// The built-in tool that comes from a GitHub repository (`owner/name`): the
+/// one whose website is that repository.
+fn builtin_for<'a>(tools: &'a IndexMap<String, Tool>, full: &str) -> Option<&'a Tool> {
+    let want = format!("github.com/{}", full.to_lowercase());
+    tools.values().find(|t| {
+        t.source == "built-in"
+            && t.extra
+                .get("homepage")
+                .and_then(Value::as_str)
+                .is_some_and(|h| h.trim().trim_end_matches('/').to_lowercase().ends_with(&want))
+    })
+}
+
 /// Add a tool from its GitHub repository. A tool with a tested setup
 /// (`recipes/`) is ready at once. A repository that carries a ready
 /// definition (`gwm/tool.yml`) is installed as it is; any other becomes a draft
 /// with what could be found out (name, description, licence, newest release,
-/// its BioContainers container), to finish in the tool editor.
-pub fn add_from_github(cat: &Catalog, link: &str) -> Result<serde_json::Value> {
+/// its container), to finish in the tool editor. The container is built from
+/// the repository's own recipe or environment file when it has one, else it is
+/// the BioContainers image.
+///
+/// A repository whose tool is already built into the app is not added unless
+/// `anyway` is set: the answer then names the built-in tool, so the user can
+/// be told first.
+pub fn add_from_github(cat: &Catalog, link: &str, anyway: bool) -> Result<serde_json::Value> {
     let (owner, repo) = parse_repo(link)?;
     let info = fetch_json(&format!("https://api.github.com/repos/{owner}/{repo}"))?
         .ok_or_else(|| anyhow!("GitHub has no repository {owner}/{repo} (or it is private)"))?;
@@ -214,6 +233,16 @@ pub fn add_from_github(cat: &Catalog, link: &str) -> Result<serde_json::Value> {
             == Some(full.as_str())
     }) {
         bail!("{} is already here: find it on the Tools page", t.name);
+    }
+    if !anyway {
+        if let Some(t) = builtin_for(&tools, &full) {
+            // the built-in tool of a tested setup is that setup: there is nothing else to add
+            let can_add = recipe(cat, &full).is_none();
+            return Ok(json!({
+                "builtin": {"id": t.id, "name": t.name, "version": t.version},
+                "can_add": can_add,
+            }));
+        }
     }
     let raw = format!("https://raw.githubusercontent.com/{owner}/{repo}/{branch}");
     let mut github = Mapping::new();
@@ -290,15 +319,24 @@ pub fn add_from_github(cat: &Catalog, link: &str) -> Result<serde_json::Value> {
             .filter(|v| !v.is_empty())
             .map(|v| (c.clone(), v))
     });
-    let release = fetch_json(&format!("https://api.github.com/repos/{full}/releases/latest"))
+    let release_tag = fetch_json(&format!("https://api.github.com/repos/{full}/releases/latest"))
         .ok()
         .flatten()
-        .and_then(|r| {
-            r["tag_name"]
-                .as_str()
-                .map(|t| t.trim_start_matches(['v', 'V']).to_string())
-        });
-    let mut buildable: Option<(&str, String)> = None;
+        .and_then(|r| r["tag_name"].as_str().map(String::from));
+    // a container built from the repository is built at this release
+    if let Some(tag) = &release_tag {
+        github.insert(y("release"), y(tag));
+    }
+    let release = release_tag
+        .as_ref()
+        .map(|t| t.trim_start_matches(['v', 'V']).to_string());
+    // What the repository itself can be built from. Its own container recipe
+    // or environment file comes first: those are the versions its authors
+    // work with. The ready-made BioContainers image is then the other choice
+    // in the editor. A bare Python package is only built when there is no
+    // ready-made container (it brings none of the other programs a tool needs).
+    let mut buildable = crate::build::detect(&full, &branch);
+    let mut ready_made: Option<Mapping> = None;
     let (program, version, container) = match &found {
         Some((package, versions)) => {
             let (version, image) = release
@@ -306,19 +344,35 @@ pub fn add_from_github(cat: &Catalog, link: &str) -> Result<serde_json::Value> {
                 .and_then(|r| versions.iter().find(|(v, _)| v == r))
                 .unwrap_or(&versions[0])
                 .clone();
-            notes.push(format!(
-                "Found its container on BioContainers: {package} {version}{}.",
-                if release.as_deref() == Some(version.as_str()) {
-                    " (the newest release)"
-                } else {
-                    ""
+            match &buildable {
+                Some((kind, _)) if *kind != "pip" => {
+                    notes.push(format!(
+                        "The app will build its container from {} (the versions its authors use). A ready-made container, {package} {version} on BioContainers, is the other choice in the editor.",
+                        crate::build::source_words(kind)
+                    ));
+                    let mut m = Mapping::new();
+                    m.insert(y("container"), y(&image));
+                    m.insert(y("version"), y(&version));
+                    m.insert(y("package"), y(package));
+                    ready_made = Some(m);
+                    (package.clone(), release.clone().unwrap_or(version), String::new())
                 }
-            ));
-            (package.clone(), version, image)
+                _ => {
+                    buildable = None;
+                    notes.push(format!(
+                        "Found its container on BioContainers: {package} {version}{}.",
+                        if release.as_deref() == Some(version.as_str()) {
+                            " (the newest release)"
+                        } else {
+                            ""
+                        }
+                    ));
+                    (package.clone(), version, image)
+                }
+            }
         }
         None => {
             // no ready-made container: one can often be built from the repository
-            buildable = crate::build::detect(&full, &branch);
             notes.push(match &buildable {
                 Some((kind, _)) => format!(
                     "No ready-made container was found, so the app will build one from {}.",
@@ -368,6 +422,9 @@ pub fn add_from_github(cat: &Catalog, link: &str) -> Result<serde_json::Value> {
         b.insert(y("kind"), y(*kind));
         b.insert(y("file"), y(file));
         m.insert(y("build"), Value::Mapping(b));
+    }
+    if let Some(rm) = ready_made {
+        m.insert(y("ready_made"), Value::Mapping(rm));
     }
     dump_yaml(
         &m,
@@ -773,40 +830,98 @@ pub(crate) fn run_try(cat: &Catalog, tool: &Tool, req: &TryRequest) -> Result<tr
 
 // ---------------------------------------------------------------- versions and updates
 
-/// The BioContainers package a tool's own version comes from. Helper tools
-/// that only borrow a container (python for a script) have none.
-fn versioned_package(tool: &Tool) -> Option<&str> {
-    biocontainers_package(&tool.container).filter(|_| tool.container.contains(&format!(":{}--", tool.version)))
+/// Where the other versions of a tool are published.
+#[derive(Debug, PartialEq)]
+enum Published<'a> {
+    /// A BioContainers package: any version can sit beside the one here.
+    BioContainers(&'a str),
+    /// A container on GitHub's registry whose tag is its version (the app's
+    /// own typing tools): only newer versions are offered, because the tool's
+    /// command here was written for this version and may not fit an older one.
+    Ghcr(&'a str),
 }
 
-/// The versions of a tool that can be added (BioContainers tools only).
+impl Published<'_> {
+    fn name(&self) -> &str {
+        match self {
+            Published::BioContainers(p) | Published::Ghcr(p) => p,
+        }
+    }
+
+    /// (version, image), newest first.
+    fn versions(&self) -> Result<Vec<(String, String)>> {
+        match self {
+            Published::BioContainers(p) => biocontainer_versions(p),
+            Published::Ghcr(repo) => ghcr_versions(repo),
+        }
+    }
+}
+
+/// Where a tool's own versions come from. Helper tools that only borrow a
+/// container (python for a script) and containers built on this computer
+/// have nowhere.
+fn published(tool: &Tool) -> Option<Published<'_>> {
+    if let Some(package) = biocontainers_package(&tool.container) {
+        return tool
+            .container
+            .contains(&format!(":{}--", tool.version))
+            .then_some(Published::BioContainers(package));
+    }
+    // the tag is the version, with or without a build suffix (1.0.0-galaxy2)
+    ghcr_image(&tool.container)
+        .filter(|(_, tag)| tag.starts_with(&tool.version))
+        .map(|(repo, _)| Published::Ghcr(repo))
+}
+
+/// The newest version of a tool this computer has, as numbers to compare.
+fn newest_here(tool: &Tool) -> Vec<u64> {
+    let tag = ghcr_image(&tool.container).map(|(_, tag)| tag);
+    std::iter::once(tool.version.as_str())
+        .chain(tag)
+        .chain(tool.variants.keys().map(String::as_str))
+        .map(version_key)
+        .max()
+        .unwrap_or_default()
+}
+
+/// The published versions of a tool that can be added beside the ones here.
+fn addable(tool: &Tool, from: &Published) -> Result<Vec<(String, String)>> {
+    let here = newest_here(tool);
+    Ok(from
+        .versions()?
+        .into_iter()
+        .filter(|(v, image)| *v != tool.version && *image != tool.container && !tool.variants.contains_key(v))
+        .filter(|(v, _)| matches!(from, Published::BioContainers(_)) || version_key(v) > here)
+        .collect())
+}
+
+/// The versions of a tool that can be added.
 pub fn versions(cat: &Catalog, id: &str) -> Result<serde_json::Value> {
     let tools = cat.load_tools()?;
     let tool = tools.get(id).ok_or_else(|| anyhow!("unknown tool {id}"))?;
-    let Some(package) = versioned_package(tool) else {
+    let Some(from) = published(tool) else {
         return Ok(json!({"package": null, "current": tool.version, "available": []}));
     };
-    let available: Vec<serde_json::Value> = biocontainer_versions(package)?
+    let available: Vec<serde_json::Value> = addable(tool, &from)?
         .into_iter()
-        .filter(|(v, _)| *v != tool.version && !tool.variants.contains_key(v))
         .map(|(version, container)| json!({"version": version, "container": container}))
         .collect();
-    Ok(json!({"package": package, "current": tool.version, "available": available}))
+    Ok(json!({"package": from.name(), "current": tool.version, "available": available}))
 }
 
 /// Add another version of a tool beside the one it has.
 pub fn add_version(cat: &Catalog, id: &str, version: &str) -> Result<()> {
     let tools = cat.load_tools()?;
     let tool = tools.get(id).ok_or_else(|| anyhow!("unknown tool {id}"))?;
-    let package = versioned_package(tool).ok_or_else(|| anyhow!("{} has no other versions to add", tool.name))?;
-    let (_, image) = biocontainer_versions(package)?
+    let from = published(tool).ok_or_else(|| anyhow!("{} has no other versions to add", tool.name))?;
+    let (_, image) = addable(tool, &from)?
         .into_iter()
         .find(|(v, _)| v == version)
-        .ok_or_else(|| anyhow!("BioContainers has no {package} {version}"))?;
+        .ok_or_else(|| anyhow!("there is no {} {version} to add", tool.name))?;
     add_tool_version(cat, tool, version, &image)
 }
 
-/// Tools with a newer version on BioContainers than any here.
+/// Tools with a newer version published than any here.
 pub fn newer_versions(cat: &Catalog) -> Result<Vec<serde_json::Value>> {
     let tools = cat.load_tools()?;
     let found: Vec<Option<serde_json::Value>> = std::thread::scope(|scope| {
@@ -814,12 +929,8 @@ pub fn newer_versions(cat: &Catalog) -> Result<Vec<serde_json::Value>> {
             .values()
             .map(|tool| {
                 scope.spawn(move || {
-                    let package = versioned_package(tool)?;
-                    let (newest, _) = biocontainer_versions(package).ok()?.into_iter().next()?;
-                    let have = std::iter::once(&tool.version)
-                        .chain(tool.variants.keys())
-                        .map(|v| version_key(v))
-                        .max()?;
+                    let (newest, _) = published(tool)?.versions().ok()?.into_iter().next()?;
+                    let have = newest_here(tool);
                     (version_key(&newest) > have)
                         .then(|| json!({"id": tool.id, "name": tool.name, "current": tool.version, "newest": newest}))
                 })
@@ -938,6 +1049,62 @@ mod tests {
                       ```\nconda install -c bioconda -c conda-forge tb-profiler=6.2\n```\n";
         assert_eq!(packages_named(readme), vec!["tb-profiler"]);
         assert_eq!(packages_named("mamba install -n env bioconda::mlst"), vec!["mlst"]);
+    }
+
+    /// A built-in tool as the app reads it.
+    fn builtin(id: &str) -> Tool {
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../../tools/{id}/tool.yml"));
+        serde_yaml::from_value(load_yaml(&file).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn where_other_versions_come_from() {
+        // a BioContainers tool
+        assert_eq!(
+            published(&builtin("shovill")),
+            Some(Published::BioContainers("shovill"))
+        );
+        // the app's own typing tools: checked on GitHub's registry
+        for (id, repo) in [
+            ("mlst_typing", "tinustk/gwm-mlst-typing"),
+            ("shigella_typing", "tinustk/gwm-shigella-typing"),
+            ("cdiphtheriae_typing", "tinustk/gwm-cdiphtheriae-typing"),
+        ] {
+            assert_eq!(published(&builtin(id)), Some(Published::Ghcr(repo)), "{id}");
+        }
+        // a helper that only borrows a container has no versions of its own
+        assert_eq!(published(&builtin("summary_tables")), None);
+
+        // the tag counts too: 1.1.0-galaxy0 is not older than a 1.1.0-galaxy0 on the registry
+        let cdiph = builtin("cdiphtheriae_typing");
+        assert!(version_key("1.1.0-galaxy0") <= newest_here(&cdiph));
+        assert!(version_key("1.1.0-galaxy1") > newest_here(&cdiph));
+        assert!(version_key("1.2.0") > newest_here(&cdiph));
+    }
+
+    #[test]
+    fn a_repository_that_is_built_in() {
+        let mut tools = IndexMap::new();
+        for id in ["tbtamr", "tb_profiler", "summary_tables"] {
+            let mut t = builtin(id);
+            t.source = "built-in".into();
+            tools.insert(id.to_string(), t);
+        }
+        // whatever the capitals in the link
+        assert_eq!(
+            builtin_for(&tools, "mdu-phl/tbtamr").map(|t| t.id.as_str()),
+            Some("tbtamr")
+        );
+        assert_eq!(
+            builtin_for(&tools, "jodyphelan/TBProfiler").map(|t| t.id.as_str()),
+            Some("tb_profiler")
+        );
+        // another repository of the same owner, or one whose name only starts the same
+        assert!(builtin_for(&tools, "MDU-PHL/abritamr").is_none());
+        assert!(builtin_for(&tools, "MDU-PHL/tbtamr-extras").is_none());
+        // a tool added on this computer is not built in
+        tools["tbtamr"].source = "github".into();
+        assert!(builtin_for(&tools, "MDU-PHL/tbtamr").is_none());
     }
 
     #[test]

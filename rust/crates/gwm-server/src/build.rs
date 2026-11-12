@@ -45,7 +45,7 @@ pub fn build_source(names: &[String]) -> Option<(&'static str, String)> {
 pub fn source_words(kind: &str) -> &'static str {
     match kind {
         "dockerfile" => "its own container recipe (Dockerfile)",
-        "conda" => "its conda environment file",
+        "conda" => "its own environment file",
         _ => "its Python package",
     }
 }
@@ -82,7 +82,8 @@ fn recipe(kind: &str, file: &str) -> String {
              \x20     /opt/conda/bin/python -m pip install --no-cache-dir --no-deps -e /opt/tool-src \\\n\
              \x20     || /opt/conda/bin/python -m pip install --no-cache-dir --no-deps /opt/tool-src \\\n\
              \x20     || echo 'the repository itself was not installed'; fi; fi\n\
-             ENV PATH=/opt/conda/bin:$PATH\n\
+             # tools installed with conda often look for their files under $CONDA_PREFIX\n\
+             ENV PATH=/opt/conda/bin:$PATH CONDA_PREFIX=/opt/conda\n\
              ENTRYPOINT []\n"
         )
     } else {
@@ -182,14 +183,17 @@ pub fn build(cat: &Catalog, id: &str, r: &Reporter) -> Result<()> {
     if gwm_engine::backend::detect().name() != "docker" {
         bail!("building a container needs Docker, and this computer runs its tools with Apptainer: type a container address instead");
     }
-    let commit = fetch_json(&format!("https://api.github.com/repos/{full}/commits/{branch}"))?
+    // the tool's newest release when it has one (the version the tool is
+    // listed at), else the newest state of its main branch
+    let at = text("github", "release").unwrap_or_else(|| branch.clone());
+    let commit = fetch_json(&format!("https://api.github.com/repos/{full}/commits/{at}"))?
         .and_then(|c| c["sha"].as_str().map(String::from))
-        .ok_or_else(|| anyhow!("GitHub did not say which commit {branch} is at"))?;
+        .ok_or_else(|| anyhow!("GitHub did not say which commit {at} is at"))?;
     let dir = cat.home.join("build").join(id);
     let _ = fs::remove_dir_all(&dir);
     let src = dir.join("src");
     fs::create_dir_all(&src)?;
-    r.log(format!("Downloading {full} (commit {})", &commit[..7]));
+    r.log(format!("Downloading {full} at {at} (commit {})", &commit[..7]));
     unpack(&format!("https://codeload.github.com/{full}/tar.gz/{commit}"), &src)?;
 
     let version: String = tool

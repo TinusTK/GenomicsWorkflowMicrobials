@@ -114,7 +114,7 @@ installed.
 | Resistance / virulence genes | ABRicate (NCBI, VFDB) | 1.4.0 |
 | AMR (Australian reporting) | abriTAMR | 1.3.0 |
 | Shigella typing | ShigaPass + Mykrobe | 1.0.2 |
-| *C. diphtheriae* tox and MLST typing | built-in | 1.0.0 |
+| *C. diphtheriae* tox and MLST typing | built-in | 1.1.0 |
 | Completeness / contamination | CheckM | 1.2.3 |
 | Assembly QC | QUAST | 5.3.0 |
 | Summary tables | built-in | Galaxy's output tables, made the same way |
@@ -202,16 +202,25 @@ nothing is removed while a run is going. Then uninstall the app the usual way.
 
 The app is meant to work with any tool that has a GitHub page.
 
+Some tools beyond the RDH workflow come built in and are ready to use in your
+own workflows: MLST typing, TBProfiler and tbtAMR (tuberculosis drug
+resistance). Pasting the link of a built-in tool tells you so before anything
+is added.
+
 **Tools › Add a tool**, and paste the tool's GitHub link. Then one of two
 things happens:
 
 - **The tool has a tested setup** (the list is in [`recipes/`](recipes/),
   TBProfiler so far): it is ready to use at once.
 - **It has none yet:** the app reads the tool's name, licence and newest
-  release, finds its container on [BioContainers](https://biocontainers.pro)
-  and opens the editor. Choose a folder of reads and press **Set it up for
-  me**: the app reads the tool's own help, writes the command, tries it on
-  one sample and lists the result files. When that works, the tool is ready.
+  release and opens the editor. Choose a folder of reads and press **Set it
+  up for me**: the app gets the tool's container, reads the tool's own help,
+  writes the command, tries it on one sample and lists the result files.
+  When that works, the tool is ready. The container is built from the tool's
+  own recipe or environment file when its repository has one (the program
+  versions its authors use); the ready-made one from
+  [BioContainers](https://biocontainers.pro) is then the other choice in
+  the editor, and the one used when the repository has neither.
 
 The automatic setup fits tools with the usual options (reads in, a folder or
 file out), not every tool. When it doesn't fit, the command is yours to change

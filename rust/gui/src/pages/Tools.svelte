@@ -59,10 +59,35 @@
   let link = $state('');
   let adding = $state(false);
 
-  async function add() {
+  /** the built-in tool the pasted link belongs to: the user is told before anything is added */
+  let builtinHit = $state<{ id: string; name: string; version: string; canAdd: boolean } | null>(null);
+  $effect(() => {
+    // another link, or the dialog closed: the warning no longer applies
+    void link;
+    if (!addOpen || link !== warnedLink) builtinHit = null;
+  });
+  let warnedLink = '';
+
+  function useBuiltin() {
+    if (!builtinHit) return;
+    search = builtinHit.name;
+    open = builtinHit.id;
+    addOpen = false;
+    link = '';
+  }
+
+  async function add(anyway = false) {
     adding = true;
     try {
-      const done = await post<{ id: string; name: string; draft: boolean; notes: string[] }>('/api/tools/add', { url: link });
+      const done = await post<{
+        id: string; name: string; draft: boolean; notes: string[];
+        builtin?: { id: string; name: string; version: string }; can_add?: boolean;
+      }>('/api/tools/add', { url: link, anyway });
+      if (done.builtin) {
+        warnedLink = link;
+        builtinHit = { ...done.builtin, canAdd: !!done.can_add };
+        return;
+      }
       toasts.show(`Added ${done.name}. ${done.notes.join(' ')}`, done.draft ? 'info' : 'ok', undefined, 9000);
       addOpen = false;
       link = '';
@@ -243,7 +268,7 @@
                       <span>
                         <span class="font-semibold text-ink">Show its reports as tables</span> · text and JSON reports are read into tables
                         with headings, every sample together.
-                        {t.source === 'built-in'
+                        {t.source === 'built-in' && !t.report_tables
                           ? 'Switch off to see the files as the tool wrote them.'
                           : 'The tables are also saved as files beside the tool\'s own, as its "tables" output: connect that to Summary tables in the workflow builder. Switch off for only the files the tool wrote.'}
                       </span>
@@ -282,7 +307,7 @@
 </div>
 
 <Dialog bind:open={addOpen} title="Add a tool from GitHub">
-  <form class="flex flex-col gap-3" onsubmit={(e) => { e.preventDefault(); add(); }}>
+  <form class="flex flex-col gap-3" onsubmit={(e) => { e.preventDefault(); if (!builtinHit) add(); }}>
     <p class="m-0">
       Paste the link to the tool's GitHub page. The app reads its name, description, licence and newest release, looks for its
       container, and opens the editor so you can finish it. Nothing on GitHub is changed: the tool is kept on this computer.
@@ -291,9 +316,29 @@
       GitHub link
       <input class="input" bind:value={link} placeholder="https://github.com/owner/tool" />
     </label>
+    {#if builtinHit}
+      <div class="flex gap-3 rounded-xl border border-warn-line bg-warn-soft p-3.5 text-[13px] text-warn-ink" role="alert">
+        <span class="mt-0.5 flex-none"><Icon name="info" size={18} /></span>
+        <span>
+          <strong>{builtinHit.name} {builtinHit.version} is already built into the app.</strong>
+          The built-in one is set up and tested, and is ready to use in workflows: you don't need to add it.
+          {#if builtinHit.canAdd}
+            Adding it from GitHub makes a second, separate tool that the app sets up by best guess, so its results may differ from
+            the built-in one. Do that only if you need another version of it.
+          {:else}
+            Its GitHub setup is the same one the app already uses, so there is nothing more to add.
+          {/if}
+        </span>
+      </div>
+    {/if}
   </form>
   {#snippet actions()}
     <Button onclick={() => (addOpen = false)}>Cancel</Button>
-    <Button variant="primary" busy={adding} disabled={!link.trim()} onclick={add}>Add</Button>
+    {#if builtinHit}
+      {#if builtinHit.canAdd}<Button busy={adding} onclick={() => add(true)}>Add it anyway</Button>{/if}
+      <Button variant="primary" onclick={useBuiltin}>Show the built-in one</Button>
+    {:else}
+      <Button variant="primary" busy={adding} disabled={!link.trim()} onclick={() => add()}>Add</Button>
+    {/if}
   {/snippet}
 </Dialog>

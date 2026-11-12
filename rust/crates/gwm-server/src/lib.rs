@@ -332,12 +332,15 @@ async fn set_tool_outputs(State(a): State<App>, UrlPath(id): UrlPath<String>, Js
 struct AddToolReq {
     /// the tool's GitHub link
     url: String,
+    /// add it even though the app has this tool built in (the user was told)
+    #[serde(default)]
+    anyway: bool,
 }
 
 /// Add a tool from its GitHub repository (a draft to finish in the editor,
 /// unless the repository carries its own definition).
 async fn add_tool(State(a): State<App>, Json(b): Json<AddToolReq>) -> Api {
-    ok(tokio::task::spawn_blocking(move || tooledit::add_from_github(&a.cat, &b.url)).await??)
+    ok(tokio::task::spawn_blocking(move || tooledit::add_from_github(&a.cat, &b.url, b.anyway)).await??)
 }
 
 async fn save_tool(State(a): State<App>, UrlPath(id): UrlPath<String>, Json(b): Json<tooledit::Definition>) -> Api {

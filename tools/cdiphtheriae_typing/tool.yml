@@ -1,6 +1,6 @@
 id: cdiphtheriae_typing
 name: C. diphtheriae typing
-version: 1.0.0
+version: 1.1.0
 category: Typing
 description: >-
   tox gene detection, tox allele and 7-gene MLST for Corynebacterium
@@ -10,7 +10,7 @@ description: >-
 homepage: https://github.com/TinusTK/corynebacterium-diphtheriae-typing
 license: MIT
 citation: "Bolt F et al. (2010) J Clin Microbiol 48:4177-4185 (MLST); BIGSdb-Pasteur."
-container: ghcr.io/tinustk/gwm-cdiphtheriae-typing:1.0.0-galaxy2
+container: ghcr.io/tinustk/gwm-cdiphtheriae-typing:1.1.0-galaxy0
 scope: all_samples
 resources: {cpus: 4, memory_gb: 2}
 requirements: {memory_gb: 1}
@@ -22,6 +22,15 @@ outputs:
   report: {type: tsv, path: out/cdiphtheriae_typing.tsv, description: "tox gene, tox allele, ST and profile per sample."}
 
 settings:
+  allele_layout:
+    label: MLST allele layout
+    type: select
+    options: [combined, separate]
+    option_labels:
+      combined: Combined in one column (mlst_profile)
+      separate: One column per allele (ALLELE1 to ALLELE7)
+    default: combined
+    description: Combined keeps all seven MLST calls in one mlst_profile column. Separate puts each locus in its own column.
   tox_min_identity:
     label: tox minimum identity (%)
     type: number
@@ -51,9 +60,14 @@ versions:
 
 galaxy:
   tool: tinustk/cdiphtheriae_typing/cdiphtheriae_typing
+  # Galaxy's RDH v6 file names 1.0.0+galaxy2. 1.1.0 has the same database
+  # (Pasteur_2026-10b) and, with the default combined layout, writes the same
+  # table, so it stands in for it.
+  any_version: true
   inputs: {input: contigs}
   outputs: {output: report}
   settings:
+    allele_layout: allele_layout
     tox_min_identity: adv.tox_min_identity
     tox_min_coverage: adv.tox_min_coverage
     mlst_min_identity: adv.mlst_min_identity
@@ -72,5 +86,6 @@ command: |
       --tox-min-coverage "$S_tox_min_coverage" \
       --mlst-min-identity "$S_mlst_min_identity" \
       --mlst-min-coverage "$S_mlst_min_coverage" \
+      --allele-layout "$S_allele_layout" \
       --threads "$CPUS" \
       --output out/cdiphtheriae_typing.tsv

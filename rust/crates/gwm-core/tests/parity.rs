@@ -102,3 +102,19 @@ fn loops_are_refused() {
     let e = compiler::resolve(&wf, &tools).unwrap_err().to_string();
     assert!(e.starts_with("steps form a loop"), "{e}");
 }
+
+/// A built-in tool's reports are written as tables only when its tool.yml
+/// asks for that (TBProfiler); the RDH tools stay as Galaxy has them.
+#[test]
+fn builtin_report_tables_are_opt_in() {
+    let tools = catalog().load_tools().unwrap();
+    let tb = &tools["tb_profiler"];
+    assert_eq!(tb.source, "built-in");
+    assert_eq!(tb.report_outputs, ["report", "report_json"]);
+    assert!(tb.outputs.contains_key("tables"));
+    for (id, t) in &tools {
+        if id != "tb_profiler" {
+            assert!(t.report_outputs.is_empty(), "{id}");
+        }
+    }
+}

@@ -2,16 +2,27 @@
 # (containers/<name>/Dockerfile) and publishes them on GitHub's registry as
 # ghcr.io/tinustk/gwm-<name>:<version>. A published version is never built
 # over: change the version here and in the tool's tool.yml together.
+#
+# Two jobs:
+#   build         the version the app comes with (pinned commit in the Dockerfile)
+#   new-releases  once a day: when a tool's own repository has a newer release
+#                 than the one the app comes with, the same Dockerfile is built
+#                 at that release as gwm-<name>:<release tag without the v>.
+#                 The app's "Check for newer versions" then finds it and can
+#                 add it beside the built-in version, without an app update.
 name: Containers
 
 on:
   push:
     branches: [main]
     paths: ["containers/**", ".github/workflows/containers.yml"]
+  schedule:
+    - cron: "17 3 * * *"
   workflow_dispatch:
 
 jobs:
   build:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -23,9 +34,13 @@ jobs:
           - name: shigella-typing
             version: 1.0.2
           - name: cdiphtheriae-typing
-            version: 1.0.0-galaxy2
+            version: 1.1.0-galaxy0
           - name: mlst-typing
-            version: 0.1.0
+            version: 0.3.0
+          # not in new-releases below: a new tbtAMR is only published after it
+          # was tried on a known resistant sample (see its Dockerfile)
+          - name: tbtamr
+            version: 1.0.4
     steps:
       - uses: actions/checkout@v4
       - uses: docker/login-action@v3
@@ -48,3 +63,65 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.description=Genomics Workflow Microbials tool container: ${{ matrix.name }}
+
+  new-releases:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # release = the tool repository's release the app's own version is
+        # built from: keep it in step with the job above
+        include:
+          - name: shigella-typing
+            repo: TinusTK/shigella-typing
+            release: v1.0.2
+          - name: cdiphtheriae-typing
+            repo: TinusTK/corynebacterium-diphtheriae-typing
+            release: v1.1.0+galaxy0
+          - name: mlst-typing
+            repo: TinusTK/mlst-typing
+            release: v0.3.0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Newest release of the tool
+        id: newest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh api "repos/${{ matrix.repo }}/releases/latest" --jq .tag_name)
+          version=${tag#v}
+          # a + (1.1.0+galaxy0) cannot be in a container tag
+          version=${version//+/-}
+          # only tags that can be a container tag, and never the app's own version
+          if [ "$tag" = "${{ matrix.release }}" ] || ! [[ "$version" =~ ^[0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "Nothing newer than ${{ matrix.release }} (newest release: $tag)"
+            exit 0
+          fi
+          if docker manifest inspect "ghcr.io/tinustk/gwm-${{ matrix.name }}:$version" > /dev/null 2>&1; then
+            echo "gwm-${{ matrix.name }}:$version is already published"
+            exit 0
+          fi
+          commit=$(gh api "repos/${{ matrix.repo }}/commits/$tag" --jq .sha)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        if: steps.newest.outputs.version != ''
+        with:
+          context: containers/${{ matrix.name }}
+          push: true
+          build-args: COMMIT=${{ steps.newest.outputs.commit }}
+          tags: ghcr.io/tinustk/gwm-${{ matrix.name }}:${{ steps.newest.outputs.version }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=Genomics Workflow Microbials tool container: ${{ matrix.name }} ${{ steps.newest.outputs.version }}
+      - name: Does the tool start?
+        if: steps.newest.outputs.version != ''
+        run: docker run --rm "ghcr.io/tinustk/gwm-${{ matrix.name }}:${{ steps.newest.outputs.version }}" sh -c 'python --version && blastn -version | head -1'

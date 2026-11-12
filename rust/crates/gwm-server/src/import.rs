@@ -71,6 +71,50 @@ pub fn biocontainer_versions(package: &str) -> Result<Vec<(String, String)>> {
     Ok(out)
 }
 
+/// `ghcr.io/owner/name:tag` -> (`owner/name`, `tag`): a container on GitHub's
+/// registry, where the app's own tools (and many others) publish theirs.
+pub fn ghcr_image(container: &str) -> Option<(&str, &str)> {
+    let (repo, tag) = container.strip_prefix("ghcr.io/")?.split_once(':')?;
+    (!repo.is_empty() && !tag.is_empty() && !tag.contains('/')).then_some((repo, tag))
+}
+
+/// The tags of a list that are versions (they start with a digit), as
+/// (version, image), newest first.
+fn version_tags(repo: &str, tags: &[String]) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = tags
+        .iter()
+        .filter(|t| t.starts_with(|c: char| c.is_ascii_digit()))
+        .map(|t| (t.clone(), format!("ghcr.io/{repo}:{t}")))
+        .collect();
+    out.sort_by_key(|a| std::cmp::Reverse(version_key(&a.0)));
+    out
+}
+
+/// Every published version of a public container on GitHub's registry as
+/// (version, image), newest first. Nothing is downloaded but the list of tags.
+pub fn ghcr_versions(repo: &str) -> Result<Vec<(String, String)>> {
+    let repo = repo.to_ascii_lowercase();
+    let token = get_json(&format!(
+        "https://ghcr.io/token?service=ghcr.io&scope=repository:{repo}:pull"
+    ))?;
+    let token = token["token"].as_str().context("GitHub's registry gave no access")?;
+    let url = format!("https://ghcr.io/v2/{repo}/tags/list?n=1000");
+    let text = ureq::get(&url)
+        .set("Authorization", &format!("Bearer {token}"))
+        .timeout(Duration::from_secs(30))
+        .call()
+        .with_context(|| format!("asking {url}"))?
+        .into_string()?;
+    let d: Value = serde_json::from_str(&text)?;
+    let tags: Vec<String> = d["tags"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| t.as_str().map(str::to_string))
+        .collect();
+    Ok(version_tags(&repo, &tags))
+}
+
 /// Looks things up on quay.io and the Galaxy Tool Shed.
 pub struct Online;
 
@@ -176,4 +220,27 @@ pub fn set_hidden_outputs(cat: &Catalog, tool: &str, hidden: Vec<String>) -> Res
     fs::create_dir_all(&cat.home)?;
     fs::write(outputs_file(cat), serde_json::to_string_pretty(&all)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registry_images_and_tags() {
+        assert_eq!(
+            ghcr_image("ghcr.io/tinustk/gwm-mlst-typing:0.3.0"),
+            Some(("tinustk/gwm-mlst-typing", "0.3.0"))
+        );
+        assert_eq!(ghcr_image("quay.io/biocontainers/shovill:1.4.2--hdfd78af_0"), None);
+        assert_eq!(ghcr_image("ghcr.io/tinustk/gwm-mlst-typing"), None);
+        let tags: Vec<String> = ["0.1.0", "latest", "0.10.0", "0.3.0", "sha-abc"]
+            .iter()
+            .map(|t| t.to_string())
+            .collect();
+        let found = version_tags("o/n", &tags);
+        let versions: Vec<&str> = found.iter().map(|(v, _)| v.as_str()).collect();
+        assert_eq!(versions, ["0.10.0", "0.3.0", "0.1.0"]);
+        assert_eq!(found[0].1, "ghcr.io/o/n:0.10.0");
+    }
 }

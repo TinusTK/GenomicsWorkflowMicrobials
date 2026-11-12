@@ -156,6 +156,8 @@ export interface Tool {
   github?: { repo: string; branch?: string };
   /** what a container can be built from, when there is no ready-made one */
   build?: { kind: string; file: string };
+  /** the ready-made (BioContainers) container, when the tool's own setup is the default and this is the other choice */
+  ready_made?: { container: string; version: string; package?: string };
   /** it writes reports, which the app also saves as tables (its `tables` output) */
   report_tables?: boolean;
   /** the setting that picks which database a step uses */

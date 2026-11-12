@@ -1,17 +1,19 @@
 id: mlst_typing
 name: MLST typing
-version: 0.1.0
+version: 0.3.0
 category: Typing
 description: >-
   Multilocus sequence typing of an assembly. Finds the PubMLST scheme that
   fits best by itself (the species need not be known first), then reports the
   sequence type (ST), the allele of every locus and how good the match is.
-  162 schemes from PubMLST and BIGSdb-Pasteur come with it, and the database
-  version is recorded with every run.
+  Every assembly is also typed against EnteroBase: when PubMLST gives no ST
+  and EnteroBase does, the EnteroBase result is shown and the warnings say
+  so. 162 schemes from PubMLST and BIGSdb-Pasteur and 5 from EnteroBase come
+  with it, and the database versions are recorded with every run.
 homepage: https://github.com/TinusTK/mlst-typing
 license: GPL-2.0
-citation: "TinusTK. mlst-typing, https://github.com/TinusTK/mlst-typing (a Python redesign of mlst, Seemann T); PubMLST, Jolley et al. 2018."
-container: ghcr.io/tinustk/gwm-mlst-typing:0.1.0
+citation: "TinusTK. mlst-typing, https://github.com/TinusTK/mlst-typing (a Python redesign of mlst, Seemann T); PubMLST, Jolley et al. 2018; EnteroBase, Zhou et al. 2020."
+container: ghcr.io/tinustk/gwm-mlst-typing:0.3.0
 scope: per_sample
 resources: {cpus: 2, memory_gb: 2}
 requirements: {memory_gb: 1}
@@ -20,7 +22,9 @@ inputs:
   contigs: {type: fasta, description: Assembled contigs.}
 
 outputs:
-  report: {type: tsv, path: "out/{sample}.mlst_typing.tsv", description: "Sample, scheme, ST and alleles (with status and score in the detailed layout)."}
+  report: {type: tsv, path: "out/{sample}.mlst_typing.tsv", description: "Sample, scheme, ST and alleles (with status and score in the detailed layout). PubMLST first; EnteroBase when only it gives an ST."}
+  report_pubmlst: {type: tsv, path: "out/{sample}.mlst_typing.pubmlst.tsv", description: The PubMLST result on its own.}
+  report_enterobase: {type: tsv, path: "out/{sample}.mlst_typing.enterobase.tsv", description: The EnteroBase result on its own.}
 
 settings:
   scheme:
@@ -33,7 +37,16 @@ settings:
     label: Detailed output
     type: boolean
     default: true
-    description: All alleles in one column, plus STATUS (PERFECT, NOVEL, PARTIAL ...) and SCORE columns.
+    description: A header row, plus STATUS (PERFECT, NOVEL, PARTIAL ...) and SCORE columns.
+  allele_layout:
+    label: Allele layout
+    type: select
+    options: [separate, combined]
+    option_labels:
+      separate: One column per allele (ALLELE1 to ALLELE10)
+      combined: Combined in one column (ALLELES)
+    default: separate
+    description: Used by the detailed output. Schemes have 3 to 10 loci; with one column per allele, columns a scheme does not use stay empty.
   minscore:
     label: Minimum score to report a scheme
     type: number
@@ -57,19 +70,20 @@ settings:
 
 versions:
   mlst_typing: python /opt/mlst_typing/mlst_typing.py --db /opt/mlst_typing/database --version 2>&1 | awk '{print $2}'
-  mlst_typing_db: head -1 /opt/mlst_typing/database/VERSION.txt
+  mlst_typing_db: grep . /opt/mlst_typing/database/VERSION.txt | paste -sd+ - | sed "s/+/ + /g"
   blast: |-
     blastn -version 2>&1 | head -1 | sed 's/^blastn: //'
 
 galaxy:
   tool: tinustk/mlst_typing/mlst_typing
   inputs: {input: contigs}
-  outputs: {report: report}
+  outputs: {report: report, report_pubmlst: report_pubmlst, report_enterobase: report_enterobase}
   settings:
     scheme: scheme_mode.scheme
     minscore: scheme_mode.minscore
     exclude: scheme_mode.exclude
     full: full
+    allele_layout: allele_layout
     minid: adv.minid
     mincov: adv.mincov
 
@@ -81,7 +95,10 @@ command: |
       args+=(--minscore "$S_minscore")
       [ -n "$S_exclude" ] && args+=(--exclude "$S_exclude")
   fi
-  [ "$S_full" = true ] && args+=(--full)
+  if [ "$S_full" = true ]; then
+      args+=(--full)
+      if [ "$S_allele_layout" = combined ]; then args+=(--combine-alleles); fi
+  fi
   python /opt/mlst_typing/mlst_typing.py --db /opt/mlst_typing/database \
       --threads "$CPUS" --label "$SAMPLE" "${args[@]}" \
-      --outfile "out/$SAMPLE.mlst_typing.tsv" "$IN_contigs"
+      --outfile "out/$SAMPLE.mlst_typing.tsv"       --outfile-pubmlst "out/$SAMPLE.mlst_typing.pubmlst.tsv"       --outfile-enterobase "out/$SAMPLE.mlst_typing.enterobase.tsv"       "$IN_contigs"

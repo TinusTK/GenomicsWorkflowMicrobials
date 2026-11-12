@@ -420,7 +420,8 @@ impl Catalog {
     /// also offer it as tables, their `tables` output, unless that is switched
     /// off for the tool on the Tools page (`tool_outputs.json`). The engine
     /// writes the tables at the end of the tool's step. Built-in tools are left
-    /// as they are (the RDH workflow stays the same as Galaxy's).
+    /// as they are (the RDH workflow stays the same as Galaxy's), unless their
+    /// tool.yml says `tables_from_reports: true` (TBProfiler).
     fn offer_report_tables(&self, tools: &mut IndexMap<String, Tool>) {
         let off: IndexMap<String, Vec<String>> = fs::read_to_string(self.home.join("tool_outputs.json"))
             .ok()
@@ -446,7 +447,10 @@ impl Catalog {
             }
         }
         for tool in tools.values_mut() {
-            if tool.source == "built-in" || off.get(&tool.id).is_some_and(|o| o.iter().any(|x| x == REPORT_TABLES)) {
+            // a built-in tool only when its tool.yml asks for it
+            let left_alone = tool.source == "built-in"
+                && tool.extra.get("tables_from_reports").and_then(Value::as_bool) != Some(true);
+            if left_alone || off.get(&tool.id).is_some_and(|o| o.iter().any(|x| x == REPORT_TABLES)) {
                 continue;
             }
             tool.variants.values_mut().for_each(offer);

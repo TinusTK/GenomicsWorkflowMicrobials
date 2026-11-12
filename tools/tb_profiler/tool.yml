@@ -1,0 +1,31 @@
+# Same as the tested setup in recipes/jodyphelan__tbprofiler.yml (kept for older
+# versions of the app, which read it from this repository).
+# Tested 2026-11-10 on ENA run DRR034350: lineage2.2.1.1, drug-susceptible.
+id: tb_profiler
+name: TBProfiler
+version: 6.7.0
+category: Typing
+description: >-
+  Finds drug resistance and the lineage of Mycobacterium tuberculosis from
+  paired reads. Its mutation database comes inside the container, so nothing
+  else has to be downloaded. Resistance calls are genotypic predictions, not
+  a replacement for susceptibility testing.
+homepage: https://github.com/jodyphelan/TBProfiler
+license: GPL-3.0
+citation: "Phelan JE, et al. Integrating informatics tools and portable sequencing technology for rapid detection of resistance to anti-tuberculous drugs. Genome Med. 2019;11:41."
+container: quay.io/biocontainers/tb-profiler:6.7.0--pyhdfd78af_0
+scope: per_sample
+resources: {cpus: 4, memory_gb: 8}
+# its text report is also written as tables (the "tables" output), as for a
+# tool added on this computer: connect that to Summary tables
+tables_from_reports: true
+inputs:
+  reads: {type: reads, description: The paired reads of one sample.}
+outputs:
+  report: {type: txt, path: "out/results/{sample}.results.txt", description: Drug resistance and lineage report.}
+  report_json: {type: json, path: "out/results/{sample}.results.json", description: "Every detail, for other programs."}
+settings: {}
+program: tb-profiler profile
+version_command: tb-profiler version
+command: |
+  tb-profiler profile -1 "$IN_reads_1" -2 "$IN_reads_2" -p "$SAMPLE" --threads "$CPUS" --txt --dir out

@@ -1,0 +1,66 @@
+id: tbtamr
+name: tbtAMR
+version: 1.0.4
+category: AMR and virulence
+description: >-
+  Finds the mutations linked to drug resistance in Mycobacterium tuberculosis
+  from paired Illumina reads and reports, per drug, the mechanisms found, the
+  confidence and the interpretation, using the WHO mutation catalogue (v2).
+  Made by MDU-PHL, where it is accredited to ISO 15189. The reference genome
+  and the catalogue come inside the container. Results are genotypic
+  predictions, not a replacement for susceptibility testing.
+homepage: https://github.com/MDU-PHL/tbtamr
+license: GPL-3.0
+citation: "Horan KA et al. (2025) Bringing tuberculosis genomics to the clinic: development and validation of a comprehensive pipeline to predict antimicrobial susceptibility from genomic data, accredited to ISO standards. Lancet Digital Health 7(12):100939."
+# the app's own container (containers/tbtamr): in the BioContainers images of
+# 1.0.3 and 1.0.4 freebayes crashes, no SNP is called and every drug comes
+# out "Susceptible"
+container: ghcr.io/tinustk/gwm-tbtamr:1.0.4
+scope: per_sample
+resources: {cpus: 4, memory_gb: 8}
+requirements: {memory_gb: 4}
+
+inputs:
+  reads: {type: reads, description: The paired reads of one sample.}
+
+outputs:
+  report: {type: csv, path: "out/{sample}.tbtamr_linelist_report.csv", description: "The results fit for reporting: per drug the mechanisms, confidence and interpretation, and the predicted resistance."}
+  results: {type: csv, path: "out/{sample}.tbtamr_results.csv", description: "Every result, reportable or not."}
+  cascade: {type: csv, path: "out/{sample}.tbtamr_linelist_cascade_report.csv", optional: true, description: The cascade report (when switched on).}
+  variants: {type: csv, path: "out/{sample}.tbtamr_variants.csv", optional: true, description: Every variant found in the sample.}
+
+settings:
+  min_depth:
+    label: Minimum depth to call a variant
+    type: number
+    default: 20
+    description: Reads covering a position needed before a variant is called there.
+  min_frac:
+    label: Minimum proportion to call a variant
+    type: number
+    default: 0.1
+    description: Share of the reads (0-1) that must carry a variant.
+  cascade:
+    label: Cascade reporting
+    type: boolean
+    default: false
+    description: >-
+      Also write the cascade report: second-line drugs are reported only when
+      resistance to the drugs before them is found.
+
+versions:
+  tbtamr: tbtamr --version 2>&1 | awk '{print $NF}'
+  tbtamr_catalogue: python -c "from tbtamr.version import db_version; print(db_version)"
+  mutamr: pip list 2>/dev/null | awk '$1 == "mutamr" {print $2}'
+  freebayes: freebayes --version 2>&1 | awk '{print $NF}'
+
+command: |
+  args=()
+  if [ "$S_cascade" = true ]; then args+=(--cascade); fi
+  tbtamr full -1 "$IN_reads_1" -2 "$IN_reads_2" -s "$SAMPLE" \
+      --min_depth "$S_min_depth" --min_frac "$S_min_frac" \
+      --threads "$CPUS" --ram "$MEM_GB" --tmp "$PWD" --force "${args[@]}"
+  for f in tbtamr_linelist_report tbtamr_results tbtamr_linelist_cascade_report; do
+      if [ -f "$SAMPLE/$f.csv" ]; then cp "$SAMPLE/$f.csv" "out/$SAMPLE.$f.csv"; fi
+  done
+  if [ -f "$SAMPLE/${SAMPLE}_variants.csv" ]; then cp "$SAMPLE/${SAMPLE}_variants.csv" "out/$SAMPLE.tbtamr_variants.csv"; fi

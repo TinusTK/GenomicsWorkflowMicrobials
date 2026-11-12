@@ -51,8 +51,8 @@
         return;
       }
       tool = t;
-      // no container found: that has to be filled in first
-      moreOpen = !t.container.trim();
+      // no container and nothing to build one from: that has to be filled in first
+      moreOpen = !t.container.trim() && !t.build;
       f = {
         name: t.name, version: t.version, category: t.category ?? '', description: t.description ?? '',
         homepage: t.homepage ?? '', container: t.container, scope: t.scope, program: t.program ?? t.id,
@@ -144,7 +144,7 @@
   /** Plain checks of the form, shown as a list: done, or what is still to do. */
   const checks = $derived.by(() => {
     const out: { ok: boolean; text: string }[] = [];
-    out.push({ ok: !!f.container.trim(), text: f.container.trim() ? 'It has a container.' : 'Fill in the container (where the tool is installed).' });
+    out.push({ ok: !!f.container.trim(), text: f.container.trim() ? 'It has a container.' : tool?.build ? 'Its container is built when you press Set it up for me.' : 'Fill in the container (where the tool is installed).' });
     out.push({ ok: !!f.command.trim(), text: f.command.trim() ? 'The command is written.' : 'Write the command.' });
     for (const i of inputs.filter((x) => x.name.trim())) {
       const n = i.name.trim();
@@ -277,6 +277,22 @@
   let settingUp = $state(false);
   let setupLog = $state<string[]>([]);
 
+  /** Where the container comes from, for a tool with both: built from the tool's
+   *  own recipe or environment file (the default), or the ready-made one. */
+  const bothSources = $derived(!!tool?.build && !!tool?.ready_made);
+  const usesReadyMade = $derived(!!tool?.ready_made && f.container.trim() === tool.ready_made.container);
+  const ownWords = $derived(tool?.build?.kind === 'dockerfile' ? 'its own container recipe (Dockerfile)' : tool?.build?.kind === 'conda' ? 'its own environment file' : 'its Python package');
+  function chooseSource(readyMade: boolean) {
+    if (!tool?.ready_made) return;
+    if (readyMade) {
+      f.container = tool.ready_made.container;
+      f.version = tool.ready_made.version;
+    } else {
+      // one built here before is kept; else it is built when Set it up for me is pressed
+      f.container = tool.container.startsWith('gwm-local/') ? tool.container : '';
+    }
+  }
+
   /** The app works the command out from the tool's help, tries it and lists what it made. */
   async function setUp() {
     settingUp = true;
@@ -295,7 +311,7 @@
         }
         setupLog = b.log.map((l) => l.replace(/^Error: /, ''));
         if (b.status === 'failed') {
-          toasts.show('The container could not be built. The last lines of the build are shown.', 'error');
+          toasts.show(`The container could not be built. The last lines of the build are shown.${tool?.ready_made ? ' You can choose the ready-made container instead and press Set it up for me again.' : ''}`, 'error', undefined, 12000);
           return;
         }
         await load();
@@ -344,7 +360,7 @@
             {#if f.ready}
               Workflows can run this tool. Switch this off while you are still changing it.
             {:else}
-              Let the app set it up, or write the command yourself and try it on one sample. Then switch this on and save. Until then workflows refuse to run it.
+              Press <strong>Set it up for me</strong> above and the app switches this on when the tool works. Or write the command yourself under More options, try it on one sample, then switch this on and save. Until then workflows refuse to run it.
               Everything here is kept on this computer only{tool.github ? `: nothing changes in ${tool.github.repo} on GitHub` : ''}.
             {/if}
           </span>
@@ -353,21 +369,44 @@
       </section>
 
       {#if !f.ready}
-        <section class="card flex flex-col gap-3 border-brand p-5">
-          <h2 class="m-0 text-base font-semibold">Let the app set it up</h2>
-          <p class="m-0 text-[13px] text-ink-2">
-            The app reads the tool's own help, writes the command, tries it on one sample and lists the result files it finds.
-            This works for tools with the usual options. If it doesn't fit this tool, the command below is yours to change.
+        <section class="order-first flex flex-col gap-4 rounded-2xl border-2 border-brand bg-brand-softer p-6 shadow-sm">
+          <div class="flex flex-wrap items-center gap-3">
+            <span class="flex h-11 w-11 flex-none items-center justify-center rounded-full bg-brand text-on-brand"><Icon name="play" size={22} stroke={2.4} /></span>
+            <div class="flex min-w-0 flex-1 flex-col">
+              <span class="label-caps text-brand">Start here · the easy way</span>
+              <h2 class="m-0 text-[22px] leading-tight font-bold">Set it up for me</h2>
+            </div>
+          </div>
+          <p class="m-0 text-sm text-ink-2">
+            The app does the work: it {!f.container.trim() && tool.build ? 'builds the tool\x27s container, ' : ''}reads the tool's own help, writes the command, tries it on one
+            sample and lists the result files it finds. You only choose a folder to try it on. If it doesn't fit this tool, everything
+            stays yours to change under More options.
           </p>
+          {#if bothSources && tool.ready_made}
+            <fieldset class="m-0 flex flex-col gap-2 rounded-xl border border-line bg-surface p-3.5">
+              <legend class="px-1 text-[13px] font-semibold">Where the tool is installed from</legend>
+              <label class="flex cursor-pointer items-start gap-2.5 text-[13px]">
+                <input type="radio" name="source" class="mt-0.5" checked={!usesReadyMade} onchange={() => chooseSource(false)} />
+                <span><span class="font-semibold text-ink">The tool's own setup</span> (recommended) · the app builds a container from {ownWords}, with the program versions its authors use. Takes several minutes, once.</span>
+              </label>
+              <label class="flex cursor-pointer items-start gap-2.5 text-[13px]">
+                <input type="radio" name="source" class="mt-0.5" checked={usesReadyMade} onchange={() => chooseSource(true)} />
+                <span><span class="font-semibold text-ink">The ready-made container</span> · {tool.ready_made.package ?? f.name} {tool.ready_made.version} from BioContainers. Quicker: nothing is built.</span>
+              </label>
+            </fieldset>
+          {/if}
           <div class="flex flex-wrap items-end gap-2">
             <label class="flex min-w-[260px] flex-1 flex-col gap-1.5 text-[13px] font-semibold">
-              A folder to try it on: reads, or FASTA files for a tool that takes an assembly (the first sample is used)
+              1. Choose a folder to try it on: reads, or FASTA files for a tool that takes an assembly (the first sample is used)
               <input class="input" bind:value={readsFolder} placeholder="Choose a folder" />
             </label>
             <Button icon="folder" onclick={() => (pickerOpen = true)}>Choose</Button>
-            <Button variant="primary" icon="play" busy={settingUp} disabled={!f.container.trim() && !tool.build} onclick={setUp}>Set it up for me</Button>
           </div>
-          {#if !f.container.trim()}
+          <div class="flex flex-wrap items-center gap-3">
+            <Button variant="primary" size="lg" icon="play" class="min-w-[260px] !h-14 !text-base shadow-md" busy={settingUp} disabled={!f.container.trim() && !tool.build} onclick={setUp}>2. Set it up for me</Button>
+            {#if settingUp}<span class="text-[13px] text-ink-2">Working. You can leave this page open and wait.</span>{/if}
+          </div>
+          {#if !f.container.trim() && !bothSources}
             <span class="text-xs text-warn-ink">
               {tool.build
                 ? 'No ready-made container was found for this tool, so the app builds one first. That takes several minutes, once.'
@@ -375,7 +414,7 @@
             </span>
           {/if}
           {#if setupLog.length}
-            <ul class="m-0 flex list-none flex-col gap-1 rounded-lg bg-surface-2 p-3 text-[13px] text-ink-2">
+            <ul class="m-0 flex list-none flex-col gap-1 rounded-lg bg-surface p-3 text-[13px] text-ink-2">
               {#each setupLog.slice(-12) as line}<li class="break-words">{line}</li>{/each}
               {#if settingUp}<li class="text-muted">Working…</li>{/if}
             </ul>
