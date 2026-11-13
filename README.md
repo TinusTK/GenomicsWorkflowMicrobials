@@ -5,10 +5,10 @@ for anyone who wants an easy-to-use tool.
 
 A desktop app for typing bacterial isolates from paired Illumina reads, or your
 own FASTQ reads, on your own computer. It supports your whole genome sequencing
-work without the burden of the command line. It runs Galaxy workflows without
-Galaxy, and gives you an easy way to install any bioinformatics tool from
-GitHub, so you can bring the tools your work needs. You can also build your own
-workflows from these tools.
+work without the burden of the command line. No server is needed: it all runs
+locally on your computer. It gives you an easy way to install any
+bioinformatics tool from GitHub, so you can bring the tools your work needs.
+You can also build your own workflows from these tools.
 
 Have an issue or a problem? I am here to help. I give support and can make the
 app work with other tools: open an
