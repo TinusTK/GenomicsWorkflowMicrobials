@@ -105,20 +105,30 @@ installed.
 
 | Step | Tool | Version |
 |---|---|---|
-| Read preprocessing | fastp | 0.24.0 |
-| Genome assembly | Shovill (SPAdes) | 1.4.2 |
-| Species identification | Kraken2 + Bracken | 2.1.3 / 3.0 |
-| Serovar | SISTR | 1.1.1 |
-| MLST | mlst | 2.22.0 |
-| AMR and plasmids | staramr | 0.11.0 |
-| emm typing | emmtyper | 0.2.0 |
-| Resistance / virulence genes | ABRicate (NCBI, VFDB) | 1.4.0 |
-| AMR (Australian reporting) | abriTAMR | 1.3.0 |
-| Shigella typing | ShigaPass + Mykrobe | 1.0.2 |
-| *C. diphtheriae* tox and MLST typing | built-in | 1.1.0 |
-| Completeness / contamination | CheckM | 1.2.3 |
-| Assembly QC | QUAST | 5.3.0 |
-| Summary tables | built-in | Galaxy's output tables, made the same way |
+| Read preprocessing | [fastp](https://github.com/OpenGene/fastp) | 0.24.0 |
+| Genome assembly | [Shovill](https://github.com/tseemann/shovill) (SPAdes) | 1.4.2 |
+| Species identification | [Kraken2](https://github.com/DerrickWood/kraken2) + [Bracken](https://github.com/jenniferlu717/Bracken) | 2.1.3 / 3.0 |
+| Serovar | [SISTR](https://github.com/phac-nml/sistr_cmd) | 1.1.1 |
+| MLST | [mlst](https://github.com/tseemann/mlst) | 2.22.0 |
+| AMR and plasmids | [staramr](https://github.com/phac-nml/staramr) | 0.11.0 |
+| emm typing | [emmtyper](https://github.com/MDU-PHL/emmtyper) | 0.2.0 |
+| Resistance / virulence genes | [ABRicate](https://github.com/tseemann/abricate) (NCBI, VFDB) | 1.4.0 |
+| AMR (Australian reporting) | [abriTAMR](https://github.com/MDU-PHL/abritamr) | 1.3.0 |
+| Shigella typing | [ShigaPass typing](https://github.com/TinusTK/shigella-typing) (ShigaPass + Mykrobe) | 1.0.2 |
+| *C. diphtheriae* tox and MLST typing | [C. diphtheriae typing](https://github.com/TinusTK/corynebacterium-diphtheriae-typing) | 1.1.0 |
+| Completeness / contamination | [CheckM](https://github.com/Ecogenomics/CheckM) | 1.2.3 |
+| Assembly QC | [QUAST](https://github.com/ablab/quast) | 5.3.0 |
+| Compressed assemblies | Compress contigs (built-in) | 1.0 |
+| Summary tables | RDH summary tables (built-in) | Galaxy's output tables, made the same way |
+
+Also built in, ready to use in your own workflows (not part of the RDH
+workflow):
+
+| Step | Tool | Version |
+|---|---|---|
+| MLST (PubMLST, with an EnteroBase cross-check) | [MLST typing](https://github.com/TinusTK/mlst-typing) | 0.5.0 |
+| Tuberculosis lineage and drug resistance | [TBProfiler](https://github.com/jodyphelan/TBProfiler) | 6.7.0 |
+| Tuberculosis drug resistance | [tbtAMR](https://github.com/MDU-PHL/tbtamr) | 1.0.4 |
 
 Settings match the Galaxy workflow (the original file is in
 [`reference/`](reference/)). Where the app has to differ from Galaxy, it says
