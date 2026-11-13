@@ -50,6 +50,10 @@ impl Reporter {
     pub fn result(&self, value: serde_json::Value) {
         self.0.lock().unwrap().result = Some(value);
     }
+    /// What the job has said so far (kept for a tool report).
+    pub fn lines(&self) -> Vec<String> {
+        self.0.lock().unwrap().log.clone()
+    }
 }
 
 /// Run `work` in the background; returns the job as it starts.

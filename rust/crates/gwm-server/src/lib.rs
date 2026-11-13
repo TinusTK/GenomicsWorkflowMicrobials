@@ -8,8 +8,10 @@ pub mod cleanup;
 pub mod hardware;
 pub mod import;
 pub mod jobs;
+pub mod mlstdb;
 mod selftest;
 pub mod tooledit;
+pub mod toolreport;
 
 use std::fs;
 use std::net::SocketAddr;
@@ -108,11 +110,20 @@ pub async fn serve(addr: SocketAddr, cat: Catalog, gui: Option<PathBuf>) -> anyh
         .route("/api/tools/{id}/try", post(try_tool))
         .route("/api/tools/{id}/setup", post(set_up_tool))
         .route("/api/tools/{id}/build", post(build_tool))
+        .route("/api/tools/{id}/report", get(tool_report))
         .route("/api/tools/{id}/versions", get(tool_versions).post(add_tool_version))
         .route("/api/update", get(app_update))
         .route("/api/cleanup", get(cleanup_overview).post(cleanup_remove))
         .route("/api/databases", get(list_databases))
         .route("/api/databases/{id}/install", post(install_database))
+        .route("/api/mlst-database", get(mlst_status))
+        .route("/api/mlst-database/use", post(mlst_use))
+        .route("/api/mlst-database/key", post(mlst_key))
+        .route("/api/mlst-database/oauth/start", post(mlst_oauth_start))
+        .route("/api/mlst-database/oauth/finish", post(mlst_oauth_finish))
+        .route("/api/mlst-database/update", post(mlst_update))
+        .route("/api/mlst-database/check", post(mlst_check))
+        .route("/api/mlst-database/remove", post(mlst_remove))
         .route("/api/jobs/{id}", get(get_job))
         .route("/api/browse", get(browse))
         .route("/api/reads", post(pair_reads))
@@ -350,6 +361,7 @@ async fn save_tool(State(a): State<App>, UrlPath(id): UrlPath<String>, Json(b): 
 
 async fn delete_tool(State(a): State<App>, UrlPath(id): UrlPath<String>) -> Api {
     tooledit::delete_tool(&a.cat, &id)?;
+    toolreport::forget(&a.cat, &id);
     ok(json!({"ok": true}))
 }
 
@@ -360,16 +372,18 @@ struct HelpReq {
 }
 
 async fn tool_help(State(a): State<App>, UrlPath(id): UrlPath<String>, Json(b): Json<HelpReq>) -> Api {
-    let cat = a.cat.clone();
-    ok(jobs::spawn("Show the tool's help", move |r| {
-        tooledit::show_help(&cat, &id, &b.program, r)
-    }))
+    ok(tool_job(
+        &a.cat,
+        id,
+        "help",
+        "Show the tool's help",
+        move |cat, id, r| tooledit::show_help(cat, id, &b.program, r),
+    ))
 }
 
 async fn try_tool(State(a): State<App>, UrlPath(id): UrlPath<String>, Json(b): Json<tooledit::TryRequest>) -> Api {
-    let cat = a.cat.clone();
-    ok(jobs::spawn("Try on one sample", move |r| {
-        tooledit::try_tool(&cat, &id, b, r)
+    ok(tool_job(&a.cat, id, "try", "Try on one sample", move |cat, id, r| {
+        tooledit::try_tool(cat, id, b, r)
     }))
 }
 
@@ -430,6 +444,66 @@ async fn install_database(State(a): State<App>, UrlPath(id): UrlPath<String>) ->
     ok(jobs::spawn(&format!("Install {name}"), move |r| {
         jobs::install_database(&cat, &id, r)
     }))
+}
+
+// ---------------------------------------------------------------- MLST typing's own database
+
+/// Where the user's own MLST database stands (never the key itself).
+async fn mlst_status(State(a): State<App>) -> Api {
+    ok(tokio::task::spawn_blocking(move || mlstdb::status(&a.cat)).await??)
+}
+
+#[derive(Deserialize)]
+struct MlstUseReq {
+    /// builtin (pre-2025) or own
+    #[serde(rename = "use")]
+    which: String,
+}
+
+async fn mlst_use(State(a): State<App>, Json(b): Json<MlstUseReq>) -> Api {
+    mlstdb::choose(&a.cat, &b.which)?;
+    ok(mlstdb::status(&a.cat)?)
+}
+
+#[derive(Deserialize)]
+struct MlstKeyReq {
+    key: String,
+}
+
+async fn mlst_key(State(a): State<App>, Json(b): Json<MlstKeyReq>) -> Api {
+    ok(tokio::task::spawn_blocking(move || mlstdb::add_key(&a.cat, &b.key)).await??)
+}
+
+#[derive(Deserialize)]
+struct MlstOauthReq {
+    client_key: String,
+    client_secret: String,
+}
+
+async fn mlst_oauth_start(State(a): State<App>, Json(b): Json<MlstOauthReq>) -> Api {
+    ok(tokio::task::spawn_blocking(move || mlstdb::oauth_start(&a.cat, &b.client_key, &b.client_secret)).await??)
+}
+
+#[derive(Deserialize)]
+struct MlstCodeReq {
+    code: String,
+}
+
+async fn mlst_oauth_finish(State(a): State<App>, Json(b): Json<MlstCodeReq>) -> Api {
+    ok(tokio::task::spawn_blocking(move || mlstdb::oauth_finish(&a.cat, &b.code)).await??)
+}
+
+async fn mlst_update(State(a): State<App>) -> Api {
+    ok(tokio::task::spawn_blocking(move || mlstdb::update(&a.cat)).await??)
+}
+
+async fn mlst_check(State(a): State<App>) -> Api {
+    ok(tokio::task::spawn_blocking(move || mlstdb::check(&a.cat)).await??)
+}
+
+async fn mlst_remove(State(a): State<App>) -> Api {
+    tokio::task::spawn_blocking(move || mlstdb::remove(&a.cat)).await??;
+    ok(json!({"ok": true}))
 }
 
 async fn get_job(UrlPath(id): UrlPath<String>) -> Api {
@@ -667,18 +741,48 @@ struct SetUpReq {
 /// "Set it up for me": the command from the tool's help text, a try-out on one
 /// sample, the outputs from what it made.
 async fn set_up_tool(State(a): State<App>, UrlPath(id): UrlPath<String>, Json(b): Json<SetUpReq>) -> Api {
-    let cat = a.cat.clone();
-    ok(jobs::spawn("Set the tool up", move |r| {
-        autosetup::set_up(&cat, &id, &b.reads_folder, r)
+    ok(tool_job(&a.cat, id, "setup", "Set the tool up", move |cat, id, r| {
+        autosetup::set_up(cat, id, &b.reads_folder, r)
     }))
 }
 
 /// Build a container for a tool that has none, from its repository.
 async fn build_tool(State(a): State<App>, UrlPath(id): UrlPath<String>) -> Api {
-    let cat = a.cat.clone();
-    ok(jobs::spawn("Build the tool's container", move |r| {
-        build::build(&cat, &id, r)
-    }))
+    ok(tool_job(
+        &a.cat,
+        id,
+        "build",
+        "Build the tool's container",
+        build::build,
+    ))
+}
+
+/// A job on one tool (help, try, set up, build). What it says is kept, so a
+/// tool report can show it later, also after the app was closed.
+fn tool_job(
+    cat: &Catalog,
+    id: String,
+    kind: &'static str,
+    title: &str,
+    work: impl FnOnce(&Catalog, &str, &jobs::Reporter) -> anyhow::Result<()> + Send + 'static,
+) -> jobs::Job {
+    let cat = cat.clone();
+    jobs::spawn(title, move |r| {
+        let done = work(&cat, &id, r);
+        toolreport::keep_log(&cat, &id, kind, &r.lines(), done.as_ref().err());
+        done
+    })
+}
+
+/// A tool report for when adding or setting up a tool does not work: one text
+/// file to save and send (nothing private: names, keys and addresses are replaced).
+async fn tool_report(State(a): State<App>, UrlPath(id): UrlPath<String>) -> Api {
+    let text = tokio::task::spawn_blocking(move || {
+        let computer = hardware::check(&a.cat);
+        toolreport::report(&a.cat, &id, &computer)
+    })
+    .await??;
+    ok(json!({"text": text}))
 }
 
 /// A problem report for a run that failed or stopped: one text file to save

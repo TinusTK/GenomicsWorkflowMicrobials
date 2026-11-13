@@ -348,27 +348,39 @@ fn extend_path() {
     }
 }
 
-/// Runs that are going or waiting, as the engine says; nothing when it does not answer.
-fn engine_runs() -> Option<usize> {
+/// What the engine answers on one of its pages; nothing when it does not answer.
+fn engine_get(path: &str) -> Option<serde_json::Value> {
     use std::io::{Read, Write};
     let addr = SocketAddr::from(([127, 0, 0, 1], PORT));
     let mut s = TcpStream::connect_timeout(&addr, Duration::from_millis(500)).ok()?;
     s.set_read_timeout(Some(Duration::from_secs(10))).ok()?;
-    s.write_all(b"GET /api/runs HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").ok()?;
+    s.write_all(format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").as_bytes()).ok()?;
     let mut buf = Vec::new();
     s.read_to_end(&mut buf).ok()?;
     let text = String::from_utf8_lossy(&buf);
     let body = text.split_once("\r\n\r\n")?.1;
-    let list: serde_json::Value = serde_json::from_str(body.trim()).ok()?;
+    serde_json::from_str(body.trim()).ok()
+}
+
+/// Runs that are going or waiting, as the engine says; nothing when it does not answer.
+fn engine_runs() -> Option<usize> {
+    let list = engine_get("/api/runs")?;
     Some(list.as_array()?.iter().filter(|r| matches!(r["status"].as_str(), Some("running" | "queued"))).count())
+}
+
+/// The up-to-date MLST database is being downloaded (about 1.5 hours): like a
+/// run, it must not be cut off by Stop or Quit.
+fn download_going() -> bool {
+    engine_get("/api/mlst-database").is_some_and(|m| m["job"]["status"] == "running")
 }
 
 /// A run is going: the services must stay on for it. With the engine not
 /// answering, the run processes themselves are looked for (each is its own
-/// `gwm exec`), so a run is never cut off by mistake.
+/// `gwm exec`), so a run is never cut off by mistake. A database download
+/// counts the same.
 fn run_going() -> bool {
     if let Some(n) = engine_runs() {
-        return n > 0;
+        return n > 0 || download_going();
     }
     const RUN: &str = "gwm[^ ]* exec ";
     #[cfg(windows)]

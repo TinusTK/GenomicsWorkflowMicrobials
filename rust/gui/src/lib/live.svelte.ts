@@ -1,6 +1,6 @@
 // Things several screens show, kept fresh in the background.
 
-import { get, type Database, type Hardware, type RunSummary, type Usage } from './api';
+import { get, post, type Database, type Hardware, type Job, type MlstDb, type RunDetail, type RunSummary, type Usage } from './api';
 import { invoke, isDesktop, openLink } from './desktop';
 import { toasts } from './toast.svelte';
 
@@ -13,6 +13,17 @@ export interface AppUpdate {
   /** the points under "What is new" in the newest release's notes */
   whats_new?: { title: string; text: string }[];
 }
+
+/** Something the app is working on right now, for the bar at the top of every page. */
+export interface Activity {
+  label: string;
+  /** 0 to 100; null while it can't be told yet */
+  percent: number | null;
+  /** the page that shows it in full */
+  to: string;
+}
+
+const TASK_DONE = ['COMPLETED', 'CACHED', 'SKIPPED'];
 
 class Live {
   usage = $state<Usage | null>(null);
@@ -28,7 +39,42 @@ class Live {
   updatePercent = $state<number | null>(null);
 
   running = $derived(this.runs.filter((r) => r.status === 'running' || r.status === 'queued').length);
-  missingDb = $derived(this.databases.filter((d) => !d.installed));
+  /** Databases still to install. Of a set of alternatives (the three Kraken2 sizes) one is enough:
+   *  once one is installed the others are no longer asked for (they stay on the Databases page). */
+  missingDb = $derived(
+    this.databases.filter(
+      (d) => !d.installed && !(d.alternatives && this.databases.some((o) => o.installed && o.alternatives === d.alternatives)),
+    ),
+  );
+
+  /** database id -> its install, going or just ended (kept here so it shows on every page) */
+  dbJobs = $state<Record<string, Job>>({});
+  /** MLST typing's own database: the choice, the key (never the key itself) and its download */
+  mlst = $state<MlstDb | null>(null);
+  /** run id -> how far it is, 0 to 100 */
+  runPercent = $state<Record<string, number>>({});
+
+  /** What is being worked on right now: runs, installs, downloads, the app's own update. */
+  activities = $derived.by(() => {
+    const out: Activity[] = [];
+    for (const r of this.runs.filter((r) => r.status === 'running' || r.status === 'queued'))
+      out.push({ label: `Run "${r.name}"`, percent: this.runPercent[r.id] ?? null, to: `runs/${r.id}` });
+    for (const j of Object.values(this.dbJobs).filter((j) => j.status === 'running'))
+      out.push({
+        label: j.title.replace(/^Install /, 'Installing '),
+        percent: j.progress && j.progress[1] ? Math.round((j.progress[0] / j.progress[1]) * 100) : null,
+        to: 'databases',
+      });
+    const m = this.mlst?.job;
+    if (m?.status === 'running' && m.kind !== 'sign-in')
+      out.push({
+        label: m.kind === 'check' ? 'Checking for a newer MLST database' : 'Downloading the MLST database',
+        percent: m.progress && m.progress[1] ? Math.round((m.progress[0] / m.progress[1]) * 100) : null,
+        to: 'databases',
+      });
+    if (this.updating) out.push({ label: 'Updating the app', percent: this.updatePercent, to: 'settings' });
+    return out;
+  });
 
   async refreshUsage() {
     try {
@@ -96,6 +142,82 @@ class Live {
       this.runs = await get<RunSummary[]>('/api/runs');
     } catch {
       /* shown by the online flag */
+      return;
+    }
+    // how far each run that is going has got, for the bar at the top
+    const percent: Record<string, number> = {};
+    for (const r of this.runs.filter((r) => r.status === 'running')) {
+      try {
+        const d = await get<RunDetail>(`/api/runs/${encodeURIComponent(r.id)}`);
+        let total = 0;
+        for (const s of d.plan_steps ?? []) if (s.runnable) total += s.per_sample ? d.samples.length : 1;
+        let done = 0;
+        for (const s of Object.values(d.steps ?? {}))
+          for (const t of Object.values(s.tasks ?? {})) if (TASK_DONE.includes(t.status)) done++;
+        if (total) percent[r.id] = Math.min(100, Math.round((done / total) * 100));
+      } catch {
+        /* the bar shows it without a number */
+      }
+    }
+    this.runPercent = percent;
+  }
+
+  /** Download and unpack a reference database (Databases page); it carries on when the page changes. */
+  async installDatabase(id: string) {
+    this.dbJobs[id] = await post<Job>(`/api/databases/${id}/install`);
+  }
+  async #followDbJobs() {
+    for (const [db, j] of Object.entries(this.dbJobs)) {
+      if (j.status !== 'running') continue;
+      try {
+        const next = await get<Job>(`/api/jobs/${j.id}`);
+        this.dbJobs[db] = next;
+        if (next.status === 'done') {
+          toasts.show(`${next.title.replace(/^Install /, '')} is installed.`);
+          this.refreshDatabases();
+        } else if (next.status === 'failed') {
+          toasts.show(next.log.at(-1) ?? 'The download failed.', 'error');
+        }
+      } catch {
+        /* try again next tick */
+      }
+    }
+  }
+
+  /** MLST typing's own database; says so once when a download or a check ends. */
+  async refreshMlst() {
+    let next: MlstDb;
+    try {
+      next = await get<MlstDb>('/api/mlst-database');
+    } catch {
+      return;
+    }
+    const was = this.mlst?.job;
+    const now = next.job;
+    this.mlst = next;
+    if (was?.status !== 'running' || !now || now.status === 'running') return;
+    if (now.status === 'failed') {
+      toasts.show(`MLST database: ${now.message ?? 'it did not work.'}`, 'error', undefined, 12000);
+    } else if (now.kind === 'check') {
+      toasts.show(
+        now.result?.newer
+          ? `A newer MLST database is available (${now.result.schemes_newer} scheme${now.result.schemes_newer === 1 ? '' : 's'} changed). Update it on the Databases page.`
+          : 'Nothing is newer than your MLST database: no need to update.',
+        now.result?.newer ? 'info' : 'ok',
+        undefined,
+        10000,
+      );
+    } else if (now.kind === 'download') {
+      toasts.show(
+        now.result?.changed
+          ? 'The up-to-date MLST database is downloaded and in use.'
+          : now.result?.own_database
+            ? 'Your MLST database was already up to date: nothing to download.'
+            : 'PubMLST gave nothing newer than the pre-2025 database, which stays in use.',
+        'ok',
+        undefined,
+        10000,
+      );
     }
   }
   async refreshHardware() {
@@ -118,8 +240,15 @@ class Live {
     this.refreshRuns();
     this.refreshHardware();
     this.refreshDatabases();
+    this.refreshMlst();
     setInterval(() => this.refreshUsage(), 4000);
     setInterval(() => this.refreshRuns(), 5000);
+    setInterval(() => this.#followDbJobs(), 1500);
+    // a download is followed closely; otherwise a look now and then is enough
+    let tick = 0;
+    setInterval(() => {
+      if (this.mlst?.job?.status === 'running' || ++tick % 15 === 0) this.refreshMlst();
+    }, 2000);
     // until the containers are ready, keep looking (Docker can take a minute to start)
     setInterval(() => {
       if (!this.hardware?.docker && !this.hardware?.apptainer) this.refreshHardware();

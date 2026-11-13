@@ -16,7 +16,7 @@ use crate::runs::{load, run_path, work_name, DETAILS, RESULTS};
 
 const MAX_REPORT: usize = 1_500_000;
 
-fn tail(text: &str, lines: usize) -> String {
+pub fn tail(text: &str, lines: usize) -> String {
     let all: Vec<&str> = text.lines().collect();
     let from = all.len().saturating_sub(lines);
     let mut out = String::new();
@@ -27,7 +27,7 @@ fn tail(text: &str, lines: usize) -> String {
     out
 }
 
-fn head(text: &str, lines: usize) -> String {
+pub fn head(text: &str, lines: usize) -> String {
     let all: Vec<&str> = text.lines().collect();
     let mut out = all[..all.len().min(lines)].join("\n");
     if all.len() > lines {
@@ -36,13 +36,13 @@ fn head(text: &str, lines: usize) -> String {
     out
 }
 
-fn read(path: &Path) -> String {
+pub fn read(path: &Path) -> String {
     fs::read(path)
         .map(|b| String::from_utf8_lossy(&b).into_owned())
         .unwrap_or_default()
 }
 
-fn section(out: &mut String, title: &str, body: &str) {
+pub fn section(out: &mut String, title: &str, body: &str) {
     let body = body.trim_end();
     let _ = writeln!(
         out,
@@ -52,7 +52,7 @@ fn section(out: &mut String, title: &str, body: &str) {
 }
 
 /// The user's name in paths (`/Users/<name>/`, `\Users\<name>\`, `/home/<name>/`) as `<user>`.
-fn mask_users(text: &str) -> String {
+pub fn mask_users(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     'outer: loop {
@@ -95,7 +95,7 @@ fn unfinished_tasks(work: &Path) -> Vec<PathBuf> {
     dirs.into_iter().take(6).map(|(_, d)| d).collect()
 }
 
-fn listing(dir: &Path) -> String {
+pub fn listing(dir: &Path) -> String {
     let mut out = String::new();
     for e in walkdir::WalkDir::new(dir)
         .min_depth(1)

@@ -207,6 +207,14 @@ own workflows: MLST typing, TBProfiler and tbtAMR (tuberculosis drug
 resistance). Pasting the link of a built-in tool tells you so before anything
 is added.
 
+MLST typing comes with PubMLST data submitted up to 31 December 2024, which
+is free. PubMLST gives newer data only to people with their own account: enter
+your own PubMLST key (a Public data access key or an OAuth key) on the
+**Databases** page or on the tool, and the app downloads the current schemes
+to your computer (about 1.5 hours, once), checks for newer ones when you ask,
+and lets each workflow step choose which database it types against. The key
+stays on your computer and is sent to PubMLST only.
+
 **Tools › Add a tool**, and paste the tool's GitHub link. Then one of two
 things happens:
 
@@ -252,6 +260,12 @@ saved where you choose, with what is needed to find out why (the app and
 computer, the workflow, what each step printed and where it stopped). It
 holds no sequence data, and sample names and the computer's user name are
 replaced before it is written. Attach it to your issue or email.
+
+**When a tool will not set up**, the tool's editor has **Save a tool report**:
+one text file with how the tool is set up here and what the app said while it
+built, set up and tried it. It holds no sequence data and no results; the
+names of the files it was tried on, the computer's user name, email addresses
+and anything that looks like a key, token or password are replaced.
 
 ## Code signing policy
 

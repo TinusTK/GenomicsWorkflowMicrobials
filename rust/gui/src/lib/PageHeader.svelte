@@ -3,6 +3,7 @@
   // and the computer's live use (green good, amber/red getting tight).
   import type { Snippet } from 'svelte';
   import { live } from './live.svelte';
+  import { href } from './router.svelte';
 
   let {
     title,
@@ -44,4 +45,25 @@
       {@render actions?.()}
     </div>
   </div>
+  <!-- what the app is working on right now (a run, an install, a download, an update); gone when nothing is -->
+  {#if live.activities.length}
+    <div class="flex flex-wrap gap-x-6 gap-y-2" role="status" aria-label="Work in progress">
+      {#each live.activities as a (a.to + a.label)}
+        <a href={href(a.to)} class="flex min-w-[240px] flex-[1_1_300px] items-center gap-3 text-ink no-underline" title="Open">
+          <span class="max-w-[46%] truncate text-[13px] font-semibold">{a.label}</span>
+          <span
+            class="h-2 min-w-[80px] flex-1 overflow-hidden rounded-full bg-line"
+            role="progressbar"
+            aria-label={a.label}
+            aria-valuenow={a.percent ?? undefined}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <span class="block h-full rounded-full bg-brand transition-[width] duration-500 {a.percent == null ? 'animate-pulse' : ''}" style="width: {a.percent ?? 100}%"></span>
+          </span>
+          <span class="w-10 text-right text-[13px] font-semibold tabular-nums text-ink-2">{a.percent == null ? '' : `${a.percent}%`}</span>
+        </a>
+      {/each}
+    </div>
+  {/if}
 </header>

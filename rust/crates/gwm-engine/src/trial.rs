@@ -189,6 +189,13 @@ pub fn run(t: &Trial, backend: &dyn Backend, kill: &AtomicBool) -> Result<TrialR
         env.push(format!("export DB_{d}={}", sq(&dir.to_string_lossy())));
         mounts.push((dir, true));
     }
+    // what the user set up for this tool (a database of their own), as a run gives it
+    if let Some(rel) = gwm_core::compiler::user_data(tool) {
+        let dir = t.db_dir.join(rel);
+        fs::create_dir_all(&dir).with_context(|| format!("making {}", dir.display()))?;
+        env.push(format!("export USER_DATA={}", sq(&dir.to_string_lossy())));
+        mounts.push((dir, true));
+    }
     for f in &tool.files {
         let from = tool.dir.join(f);
         if from.is_dir() {

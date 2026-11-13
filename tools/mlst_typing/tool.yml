@@ -1,6 +1,6 @@
 id: mlst_typing
 name: MLST typing
-version: 0.3.0
+version: 0.5.0
 category: Typing
 description: >-
   Multilocus sequence typing of an assembly. Finds the PubMLST scheme that
@@ -9,11 +9,17 @@ description: >-
   Every assembly is also typed against EnteroBase: when PubMLST gives no ST
   and EnteroBase does, the EnteroBase result is shown and the warnings say
   so. 162 schemes from PubMLST and BIGSdb-Pasteur and 5 from EnteroBase come
-  with it, and the database versions are recorded with every run.
+  with it (PubMLST data to 31 December 2024); with your own PubMLST key the
+  app downloads the current schemes (Databases page). The database versions
+  are recorded with every run.
 homepage: https://github.com/TinusTK/mlst-typing
 license: GPL-2.0
 citation: "TinusTK. mlst-typing, https://github.com/TinusTK/mlst-typing (a Python redesign of mlst, Seemann T); PubMLST, Jolley et al. 2018; EnteroBase, Zhou et al. 2020."
-container: ghcr.io/tinustk/gwm-mlst-typing:0.3.0
+container: ghcr.io/tinustk/gwm-mlst-typing:0.5.0
+# what the user set up for this tool, under the databases folder: their own
+# up-to-date database (PubMLST key) and the choice which one is in use. A
+# step gets it as $USER_DATA (rust/crates/gwm-server/src/mlstdb.rs).
+user_data: mlst_typing/own
 scope: per_sample
 resources: {cpus: 2, memory_gb: 2}
 requirements: {memory_gb: 1}
@@ -27,6 +33,16 @@ outputs:
   report_enterobase: {type: tsv, path: "out/{sample}.mlst_typing.enterobase.tsv", description: The EnteroBase result on its own.}
 
 settings:
+  database:
+    label: Database
+    type: select
+    options: [in_use, builtin, own]
+    option_labels:
+      in_use: The one in use (chosen on the Databases page)
+      builtin: Pre-2025 database (built in)
+      own: My up-to-date database (my PubMLST key)
+    default: in_use
+    description: PubMLST data the step types against. The built-in database holds data to 31 December 2024; an up-to-date one is downloaded with your own PubMLST key on the Databases page.
   scheme:
     label: Scheme
     type: string
@@ -70,7 +86,8 @@ settings:
 
 versions:
   mlst_typing: python /opt/mlst_typing/mlst_typing.py --db /opt/mlst_typing/database --version 2>&1 | awk '{print $2}'
-  mlst_typing_db: grep . /opt/mlst_typing/database/VERSION.txt | paste -sd+ - | sed "s/+/ + /g"
+  # the database the step typed against ($MLST_DB is set by the command below)
+  mlst_typing_db: grep . "${MLST_DB:-/opt/mlst_typing/database}/VERSION.txt" | paste -sd+ - | sed "s/+/ + /g"
   blast: |-
     blastn -version 2>&1 | head -1 | sed 's/^blastn: //'
 
@@ -88,6 +105,23 @@ galaxy:
     mincov: adv.mincov
 
 command: |
+  # which database: the one built into the container (PubMLST data to 31 Dec
+  # 2024), or the user's own, downloaded with their PubMLST key
+  MLST_DB=/opt/mlst_typing/database
+  own="${USER_DATA:-}/mlst-typing/database"
+  use="${S_database:-in_use}"
+  if [ "$use" = in_use ]; then
+      use=$(cat "${USER_DATA:-}/in_use" 2>/dev/null || echo builtin)
+      # chosen but gone (removed since): the built-in one
+      [ -f "$own/blast/mlst.fa.nsq" ] || use=builtin
+  fi
+  if [ "$use" = own ]; then
+      if [ ! -f "$own/blast/mlst.fa.nsq" ]; then
+          echo "This step is set to your up-to-date MLST database, but it is not downloaded. Enter your PubMLST key on the Databases page, or set the step's Database to the pre-2025 one." >&2
+          exit 1
+      fi
+      MLST_DB="$own"
+  fi
   args=(--minid "$S_minid" --mincov "$S_mincov")
   if [ -n "$S_scheme" ]; then
       args+=(--scheme "$S_scheme")
@@ -99,6 +133,6 @@ command: |
       args+=(--full)
       if [ "$S_allele_layout" = combined ]; then args+=(--combine-alleles); fi
   fi
-  python /opt/mlst_typing/mlst_typing.py --db /opt/mlst_typing/database \
+  python /opt/mlst_typing/mlst_typing.py --db "$MLST_DB" \
       --threads "$CPUS" --label "$SAMPLE" "${args[@]}" \
       --outfile "out/$SAMPLE.mlst_typing.tsv"       --outfile-pubmlst "out/$SAMPLE.mlst_typing.pubmlst.tsv"       --outfile-enterobase "out/$SAMPLE.mlst_typing.enterobase.tsv"       "$IN_contigs"

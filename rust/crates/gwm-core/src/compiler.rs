@@ -223,6 +223,18 @@ pub fn step_databases(tool: &Tool, step: &Step) -> (Vec<String>, IndexMap<String
     (dbs, alias)
 }
 
+/// In a tool.yml: `user_data: <folder>`, a folder under the databases folder
+/// that holds what the user set up for the tool (MLST typing: the database
+/// downloaded with their own PubMLST key). A step gets it as `$USER_DATA`.
+/// Only a plain relative folder is taken.
+pub fn user_data(tool: &Tool) -> Option<String> {
+    tool.extra
+        .get("user_data")
+        .and_then(Value::as_str)
+        .filter(|f| !f.is_empty() && !f.starts_with('/') && !f.split('/').any(|p| p == ".." || p.is_empty()))
+        .map(str::to_string)
+}
+
 // ---------------------------------------------------------------- run plan
 
 /// Everything the engine needs to run a workflow; saved as plan.json in the run.
@@ -265,6 +277,11 @@ pub struct PlanStep {
     /// a database the step picked in place of the tool's own: the tool's own name -> the one picked
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub db_alias: IndexMap<String, String>,
+    /// a folder under the databases folder with what the user set up for this
+    /// tool (a database downloaded with their own key): mounted as `$USER_DATA`
+    /// when the step runs. Unlike `databases` it need not hold anything yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_data: Option<String>,
     pub files: Vec<String>,
     /// results folder, relative to the run's results/ (`{sample}` = sample id)
     pub publish: String,
@@ -376,6 +393,7 @@ pub fn plan(
                 .collect(),
             databases: step_dbs,
             db_alias,
+            user_data: user_data(tool),
             files: tool.files.clone(),
             publish,
             versions: tool.version_commands(),

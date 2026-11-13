@@ -170,6 +170,24 @@ fn now() -> DateTime<Local> {
     Local::now()
 }
 
+/// What a tool's user data says is in use: the small files at its top (a
+/// choice, a version). A change there runs the step again on a resume.
+fn user_data_id(dir: &Path) -> String {
+    let mut files: Vec<PathBuf> = fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && fs::metadata(p).is_ok_and(|m| m.len() < 4096))
+        .collect();
+    files.sort();
+    files
+        .iter()
+        .map(|p| format!("{}={}", p.display(), fs::read_to_string(p).unwrap_or_default().trim()))
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
 fn file_id(p: &Path) -> String {
     let m = fs::metadata(p);
     let size = m.as_ref().map(|m| m.len()).unwrap_or(0);
@@ -459,6 +477,14 @@ impl<'a> Executor<'a> {
         // a database the step picked: the tool's command still asks for its own ($DB_<own>)
         for (own, picked) in &step.db_alias {
             env.push(format!("export DB_{own}=\"$DB_{picked}\""));
+        }
+        // what the user set up for this tool (a database of their own); it may still be empty
+        if let Some(rel) = &step.user_data {
+            let dir = spec.db_dir.join(rel);
+            fs::create_dir_all(&dir).with_context(|| format!("making {}", dir.display()))?;
+            env.push(format!("export USER_DATA={}", sq(&dir.to_string_lossy())));
+            key.update(user_data_id(&dir));
+            mounts.push((dir, true));
         }
         for (_, f) in &staged {
             if let Some(parent) = f.parent() {

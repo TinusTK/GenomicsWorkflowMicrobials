@@ -191,6 +191,8 @@ export interface Database {
   size_gb: number;
   description?: string;
   galaxy_note?: string;
+  /** databases with the same word here are alternatives: one of them is enough */
+  alternatives?: string;
   installed: boolean;
   path: string;
 }
@@ -203,6 +205,44 @@ export interface Job {
   progress: [number, number] | null;
   /** what the work found (a tool's help text, what a trial made) */
   result?: unknown;
+}
+
+/** A download or a check of MLST typing's own database, going or just finished. */
+export interface MlstJob {
+  kind: 'download' | 'check' | 'sign-in';
+  id?: string;
+  status: 'running' | 'done' | 'failed';
+  /** schemes done, schemes in all */
+  progress: [number, number] | null;
+  /** the latest news, or what went wrong */
+  message?: string | null;
+  result?: {
+    own_database?: boolean;
+    changed?: boolean;
+    newer?: boolean;
+    schemes_newer?: number;
+    schemes_failed?: number;
+  } | null;
+}
+
+/** MLST typing's database: the pre-2025 one it comes with, or the user's own (their PubMLST key). */
+export interface MlstDb {
+  /** false when the MLST typing tool here has no own database (an older one) */
+  available: boolean;
+  /** the user picked the pre-2025 database or entered a key */
+  answered?: boolean;
+  in_use?: 'builtin' | 'own';
+  key_saved?: boolean;
+  /** 'apikey' (Public data access key) or 'oauth' */
+  key_type?: string;
+  /** an OAuth sign-in is waiting for its verification code */
+  oauth_waiting?: boolean;
+  own_database?: boolean;
+  own_version?: string;
+  /** schemes of the own database PubMLST gave no newer data for */
+  own_limited_schemes?: number;
+  last_check?: { newer: boolean; schemes_newer: number; schemes_failed: number; checked: string } | null;
+  job?: MlstJob | null;
 }
 
 export interface Sample {

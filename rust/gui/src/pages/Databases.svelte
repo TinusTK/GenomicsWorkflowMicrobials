@@ -1,37 +1,20 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
   import PageHeader from '../lib/PageHeader.svelte';
+  import MlstDatabase from '../lib/MlstDatabase.svelte';
   import Button from '../lib/ui/Button.svelte';
   import Pill from '../lib/ui/Pill.svelte';
-  import { get, post, type Job } from '../lib/api';
+  import type { Job } from '../lib/api';
   import { live } from '../lib/live.svelte';
   import { errorText, toasts } from '../lib/toast.svelte';
 
-  let jobs = $state<Record<string, Job>>({});
+  // the installs live in `live`: they carry on, and still show here, after a look at another page
+  const jobs = $derived(live.dbJobs);
   live.refreshDatabases();
-
-  const timer = setInterval(async () => {
-    for (const [db, j] of Object.entries(jobs)) {
-      if (j.status !== 'running') continue;
-      try {
-        const next = await get<Job>(`/api/jobs/${j.id}`);
-        jobs[db] = next;
-        if (next.status === 'done') {
-          toasts.show(`${next.title.replace(/^Install /, '')} is installed.`);
-          live.refreshDatabases();
-        } else if (next.status === 'failed') {
-          toasts.show(next.log.at(-1) ?? 'The download failed.', 'error');
-        }
-      } catch {
-        /* try again next tick */
-      }
-    }
-  }, 1500);
-  onDestroy(() => clearInterval(timer));
+  live.refreshMlst();
 
   async function install(id: string) {
     try {
-      jobs[id] = await post<Job>(`/api/databases/${id}/install`);
+      await live.installDatabase(id);
     } catch (e) {
       toasts.show(errorText(e), 'error');
     }
@@ -77,4 +60,13 @@
       {#if db.installed}<span class="text-xs break-all text-muted">{db.path}</span>{/if}
     </article>
   {/each}
+  {#if live.mlst?.available}
+    <article class="card flex flex-col gap-3 p-5" id="mlst-database">
+      <div class="flex flex-wrap items-center gap-3">
+        <h2 class="m-0 text-base font-semibold">MLST typing database</h2>
+        <Pill status="installed" text={live.mlst.in_use === 'own' ? 'Using your up-to-date database' : 'Using the pre-2025 database'} />
+      </div>
+      <MlstDatabase />
+    </article>
+  {/if}
 </div>

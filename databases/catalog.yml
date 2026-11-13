@@ -4,6 +4,8 @@
 databases:
   kraken2_standard_8:
     name: Kraken2 Standard-8 (with Bracken files)
+    # one of these is enough: once one is installed, the app stops asking for the others
+    alternatives: kraken2
     version: "2026-06-26"
     size_gb: 7.5
     memory_gb: 8
@@ -22,6 +24,8 @@ databases:
       species abundances can differ a little from Galaxy.
   kraken2_standard_16:
     name: Kraken2 Standard-16 (with Bracken files)
+    # one of these is enough: once one is installed, the app stops asking for the others
+    alternatives: kraken2
     version: "2026-06-26"
     size_gb: 12
     memory_gb: 16
@@ -38,6 +42,8 @@ databases:
       (Database) once it is installed.
   kraken2_standard:
     name: Kraken2 Standard, full size (with Bracken files)
+    # one of these is enough: once one is installed, the app stops asking for the others
+    alternatives: kraken2
     version: "2026-06-26"
     size_gb: 86
     memory_gb: 100

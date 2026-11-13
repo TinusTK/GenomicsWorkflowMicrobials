@@ -7,6 +7,8 @@
   import Toggle from '../lib/ui/Toggle.svelte';
   import { get, post, type Tool } from '../lib/api';
   import { openLink } from '../lib/desktop';
+  import { live } from '../lib/live.svelte';
+  import MlstDatabase from '../lib/MlstDatabase.svelte';
   import { go, href, route } from '../lib/router.svelte';
   import { REPORT_TABLES } from '../lib/results';
   import { errorText, toasts } from '../lib/toast.svelte';
@@ -17,7 +19,9 @@
 
   let tools = $state<Tool[]>([]);
   let search = $state('');
-  let open = $state<string | null>(null);
+  // Home's "Choose" for the MLST database opens this page with that tool already open
+  let open = $state<string | null>(route.current.query.get('open'));
+  live.refreshMlst();
   async function load() {
     try {
       tools = await get<Tool[]>('/api/tools');
@@ -25,7 +29,12 @@
       toasts.show(errorText(e), 'error');
     }
   }
-  load();
+  // a tool opened from another page (Home): show just that one, so it is at the top
+  load().then(() => {
+    const id = route.current.query.get('open');
+    const tool = tools.find((t) => t.id === id);
+    if (tool) search = tool.name;
+  });
 
   const groups = $derived.by(() => {
     const q = search.trim().toLowerCase();
@@ -227,6 +236,12 @@
                       {/if}
                     </span>
                     <Button size="sm" variant={t.draft ? 'primary' : 'secondary'} icon="edit" href={href(`tools/${t.id}`)}>{t.draft ? 'Finish this tool' : 'Edit'}</Button>
+                  </div>
+                {/if}
+                {#if t.id === 'mlst_typing' && t.source === 'built-in' && live.mlst?.available}
+                  <div class="col-span-full flex flex-col gap-2 rounded-xl border border-line bg-surface p-4">
+                    <span class="label-caps block">Database</span>
+                    <MlstDatabase />
                   </div>
                 {/if}
                 <div><span class="label-caps block">Container</span><span class="break-all">{t.container || 'none yet'}</span></div>

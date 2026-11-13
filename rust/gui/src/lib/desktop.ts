@@ -61,6 +61,20 @@ export async function openFolder(path: string) {
   }
 }
 
+/**
+ * Save a text file where the user chooses (desktop app), or download it (in a
+ * browser). Returns where it went; null when the user cancelled.
+ */
+export async function saveTextFile(name: string, text: string): Promise<string | null> {
+  if (isDesktop()) return invoke<string | null>('save_text_file', { name, text });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(link.href);
+  return 'your downloads folder';
+}
+
 /** Open a web page or a new email outside the app (the browser or mail program). */
 export async function openLink(url: string) {
   if (isDesktop()) {

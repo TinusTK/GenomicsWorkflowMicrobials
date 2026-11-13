@@ -10,7 +10,8 @@
   import Toggle from '../lib/ui/Toggle.svelte';
   import { del, get, post, type Job, type Tool } from '../lib/api';
   import { asTable, fileKind } from '../lib/results';
-  import { go, href } from '../lib/router.svelte';
+  import { saveTextFile } from '../lib/desktop';
+import { go, href } from '../lib/router.svelte';
   import { errorText, toasts } from '../lib/toast.svelte';
 
   let { id }: { id: string } = $props();
@@ -271,6 +272,25 @@
     toasts.show(`Added the output "${name}". Save, then try again to check it.`, 'info');
   }
 
+  // ---------------------------------------------------------------- tool report
+
+  /** something went wrong here (a build, the setup or a try): the report is offered where it happened */
+  let troubled = $state(false);
+  let reporting = $state(false);
+  /** One text file with how the tool is set up and what the app said, to send in an issue or an email. */
+  async function saveReport() {
+    reporting = true;
+    try {
+      const { text } = await get<{ text: string }>(`/api/tools/${encodeURIComponent(id)}/report`);
+      const where = await saveTextFile(`Genomics Workflow Microbials tool report ${id} ${new Date().toISOString().slice(0, 10)}.txt`, text);
+      if (where) toasts.show(`The tool report is saved to ${where}. Read it through, then send it to us from Settings, Report an issue.`, 'ok', undefined, 15000);
+    } catch (e) {
+      toasts.show(errorText(e), 'error');
+    } finally {
+      reporting = false;
+    }
+  }
+
   // ---------------------------------------------------------------- set it up for me
 
   let moreOpen = $state(false);
@@ -297,6 +317,7 @@
   async function setUp() {
     settingUp = true;
     setupLog = [];
+    troubled = false;
     trial = null;
     tryError = '';
     try {
@@ -311,6 +332,7 @@
         }
         setupLog = b.log.map((l) => l.replace(/^Error: /, ''));
         if (b.status === 'failed') {
+          troubled = true;
           toasts.show(`The container could not be built. The last lines of the build are shown.${tool?.ready_made ? ' You can choose the ready-made container instead and press Set it up for me again.' : ''}`, 'error', undefined, 12000);
           return;
         }
@@ -326,6 +348,7 @@
       const r = j.result as { ready: boolean; tried: boolean; trial?: Trial } | undefined;
       await load();
       trial = r?.trial ?? null;
+      troubled = j.status === 'failed' || !r?.ready;
       if (j.status === 'failed') toasts.show(setupLog.at(-1) ?? 'The app could not set this tool up.', 'error');
       else if (r?.ready) toasts.show(`${f.name} is set up and ready to use in workflows.`);
       else toasts.show('The command is written. Check it, try it, then switch on Ready to use.', 'info');
@@ -340,11 +363,24 @@
 <PageHeader title={tool ? `Edit ${f.name || tool.name}` : 'Edit a tool'} crumbs={[{ label: 'Tools', href: href('tools') }]}>
   {#snippet actions()}
     {#if tool}
+      <Button icon="file" busy={reporting} onclick={saveReport}>Save a tool report</Button>
       <Button variant="danger" icon="trash" onclick={() => (deleteOpen = true)}>Remove</Button>
       <Button variant={f.ready ? 'primary' : 'secondary'} icon="check" busy={saving} onclick={() => save()}>Save</Button>
     {/if}
   {/snippet}
 </PageHeader>
+
+<!-- shown where something went wrong: one file to send, with nothing private in it -->
+{#snippet reportOffer()}
+  <div class="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface px-3.5 py-3 text-[13px] text-ink-2">
+    <span class="min-w-0 flex-[1_1_300px]">
+      <strong class="text-ink">Can't get this tool to work?</strong> Save a tool report and send it to us in a GitHub issue or an
+      email (Settings, Report an issue). It holds how the tool is set up and what the app said, and nothing private: no sequence
+      data, and file names, your user name, email addresses, keys and passwords are replaced.
+    </span>
+    <Button size="sm" icon="file" busy={reporting} onclick={saveReport}>Save a tool report</Button>
+  </div>
+{/snippet}
 
 {#if missing}
   <div class="px-8 pt-7 max-[720px]:px-4">
@@ -419,6 +455,7 @@
               {#if settingUp}<li class="text-muted">Working…</li>{/if}
             </ul>
           {/if}
+          {#if troubled && !settingUp}{@render reportOffer()}{/if}
         </section>
       {/if}
 
@@ -587,6 +624,7 @@
         {#if trying}<span class="text-xs text-muted">Running. Getting the container the first time can take a few minutes.</span>{/if}
         {#if tryError}
           <p class="m-0 flex items-start gap-2 rounded-lg bg-danger-soft px-3 py-2 text-[13px] font-semibold text-danger"><Icon name="alert" /> {tryError}</p>
+          {@render reportOffer()}
         {/if}
         {#if trial}
           {#if trial.exit === 0}
