@@ -19,6 +19,9 @@ app work with other tools: open an
 - **Every tool in its own container at a fixed version**, so results are repeatable.
 - **Every run in one folder** with its results and a record of exactly what ran.
 - **Add tools from GitHub** and **import workflows from Galaxy**.
+- **Species identification that fits a small computer:** Kun-peng is built in
+  beside Kraken2 and Bracken. It uses the same Kraken2 databases in far less
+  memory, with Bracken built in.
 
 ![The Home page: start a run, build a workflow or add a tool](docs/images/home.png)
 
@@ -76,7 +79,9 @@ With 16 GB some tools may still not work, so more than 16 GB is best. The
 app keeps 4 GB for the computer itself and gives the rest to the tools; on
 Windows and Mac the amount can be changed under **Settings › Memory for the
 tools** (no file to edit). The app warns before a run about steps that need
-more than the computer has.
+more than the computer has. When the tools have 16 GB or less, Home suggests
+Kun-peng for species identification: it needs far less memory than Kraken2
+(the suggestion can be dismissed).
 
 ### Opening and closing
 
@@ -141,6 +146,10 @@ so next to the setting:
   that has less. The Databases page also offers Standard-16 (16 GB of memory)
   and the full Standard database (about 100 GB of memory, for servers):
   install one, then pick it in the Kraken2 and Bracken steps (Database).
+  In your own workflows, Kun-peng (built in, see [Adding tools](#adding-tools))
+  can use any of these databases in a few GB of memory. On the Databases page
+  the three are in one Kraken2 box: click it to see each database and its
+  Kun-peng copy.
 - **CheckM tree:** "Auto" uses the reduced tree on computers with less than
   40 GB of memory (Galaxy used the full tree).
 
