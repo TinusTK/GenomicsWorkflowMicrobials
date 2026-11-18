@@ -318,7 +318,6 @@ pub fn step_check(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gwm_engine::backend::{self, Backend};
 
     fn tool() -> Tool {
         serde_yaml::from_str(
@@ -386,6 +385,8 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn makes_a_copy_that_stands_on_its_own() {
+        use gwm_engine::backend::{self, Backend};
+
         let cat = home("copy");
         let dir = &cat.home;
         let src = dir.join("kraken2").join("k2_test_20260101");
