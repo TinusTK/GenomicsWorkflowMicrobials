@@ -372,6 +372,9 @@ fn engine_runs() -> Option<usize> {
 /// run, it must not be cut off by Stop or Quit.
 fn download_going() -> bool {
     engine_get("/api/mlst-database").is_some_and(|m| m["job"]["status"] == "running")
+        // a Kraken2 database being prepared for Kun-peng (Databases page)
+        || engine_get("/api/databases")
+            .is_some_and(|d| d.as_array().is_some_and(|d| d.iter().any(|db| db["kun_peng"]["preparing"] == true)))
 }
 
 /// A run is going: the services must stay on for it. With the engine not

@@ -8,6 +8,7 @@ pub mod cleanup;
 pub mod hardware;
 pub mod import;
 pub mod jobs;
+pub mod kunpeng;
 pub mod mlstdb;
 mod selftest;
 pub mod tooledit;
@@ -116,6 +117,9 @@ pub async fn serve(addr: SocketAddr, cat: Catalog, gui: Option<PathBuf>) -> anyh
         .route("/api/cleanup", get(cleanup_overview).post(cleanup_remove))
         .route("/api/databases", get(list_databases))
         .route("/api/databases/{id}/install", post(install_database))
+        .route("/api/databases/{id}/remove", post(remove_database))
+        .route("/api/databases/{id}/kun-peng", post(kunpeng_prepare))
+        .route("/api/databases/{id}/kun-peng/remove", post(kunpeng_remove))
         .route("/api/mlst-database", get(mlst_status))
         .route("/api/mlst-database/use", post(mlst_use))
         .route("/api/mlst-database/key", post(mlst_key))
@@ -429,8 +433,26 @@ async fn cleanup_remove(State(a): State<App>, Json(b): Json<CleanupReq>) -> Api 
     ok(tokio::task::spawn_blocking(move || cleanup::remove(&a.cat, b.containers, b.data)).await??)
 }
 
+/// The databases; a Kraken2 one also says whether its Kun-peng copy is there.
 async fn list_databases(State(a): State<App>) -> Api {
-    ok(a.cat.load_databases()?.into_values().collect::<Vec<_>>())
+    ok(tokio::task::spawn_blocking(move || kunpeng::list(&a.cat)).await??)
+}
+
+/// Remove an installed database from this computer (its Kun-peng copy stays).
+async fn remove_database(State(a): State<App>, UrlPath(id): UrlPath<String>) -> Api {
+    tokio::task::spawn_blocking(move || kunpeng::remove_database(&a.cat, &id)).await??;
+    ok(json!({"ok": true}))
+}
+
+/// Make Kun-peng's copy of an installed Kraken2 database, in the background.
+async fn kunpeng_prepare(State(a): State<App>, UrlPath(id): UrlPath<String>) -> Api {
+    ok(tokio::task::spawn_blocking(move || kunpeng::prepare(&a.cat, &id)).await??)
+}
+
+/// Remove Kun-peng's copy of a database (the Kraken2 database stays).
+async fn kunpeng_remove(State(a): State<App>, UrlPath(id): UrlPath<String>) -> Api {
+    tokio::task::spawn_blocking(move || kunpeng::remove_copy(&a.cat, &id)).await??;
+    ok(json!({"ok": true}))
 }
 
 async fn install_database(State(a): State<App>, UrlPath(id): UrlPath<String>) -> Api {

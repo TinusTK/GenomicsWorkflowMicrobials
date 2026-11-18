@@ -138,7 +138,7 @@ fn scheme_line(line: &str) -> Option<(u64, u64, &str)> {
 }
 
 /// The line that says what went wrong, from what the tool printed.
-fn problem(err: &str, exit: i32) -> String {
+pub(crate) fn problem(err: &str, exit: i32) -> String {
     let lines: Vec<&str> = err.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
     lines
         .iter()
@@ -347,7 +347,7 @@ pub fn choose(cat: &Catalog, which: &str) -> Result<()> {
     Ok(())
 }
 
-fn containers() -> Result<Box<dyn Backend>> {
+pub(crate) fn containers() -> Result<Box<dyn Backend>> {
     let backend = backend::detect();
     if backend.name() == "docker" && gwm_engine::docker::probe().version.is_none() {
         bail!("the tools can't start yet (Docker is not running): see Settings");

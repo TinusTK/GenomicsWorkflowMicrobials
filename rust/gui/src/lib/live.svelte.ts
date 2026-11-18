@@ -23,6 +23,9 @@ export interface Activity {
   to: string;
 }
 
+/** in `dbJobs`: the job that makes a database's Kun-peng copy is kept under this + the database id */
+export const KUN_PENG = 'kun_peng:';
+
 const TASK_DONE = ['COMPLETED', 'CACHED', 'SKIPPED'];
 
 class Live {
@@ -40,12 +43,14 @@ class Live {
 
   running = $derived(this.runs.filter((r) => r.status === 'running' || r.status === 'queued').length);
   /** Databases still to install. Of a set of alternatives (the three Kraken2 sizes) one is enough:
-   *  once one is installed the others are no longer asked for (they stay on the Databases page). */
-  missingDb = $derived(
-    this.databases.filter(
-      (d) => !d.installed && !(d.alternatives && this.databases.some((o) => o.installed && o.alternatives === d.alternatives)),
-    ),
-  );
+   *  once one is installed the others are no longer asked for (they stay on the Databases page).
+   *  A Kraken2 database that was removed after its Kun-peng copy was made counts as there. */
+  missingDb = $derived.by(() => {
+    const have = (d: Database) => d.installed || !!d.kun_peng?.prepared;
+    return this.databases.filter(
+      (d) => !have(d) && !(d.alternatives && this.databases.some((o) => have(o) && o.alternatives === d.alternatives)),
+    );
+  });
 
   /** database id -> its install, going or just ended (kept here so it shows on every page) */
   dbJobs = $state<Record<string, Job>>({});
@@ -61,7 +66,7 @@ class Live {
       out.push({ label: `Run "${r.name}"`, percent: this.runPercent[r.id] ?? null, to: `runs/${r.id}` });
     for (const j of Object.values(this.dbJobs).filter((j) => j.status === 'running'))
       out.push({
-        label: j.title.replace(/^Install /, 'Installing '),
+        label: j.title.replace(/^Install /, 'Installing ').replace(/^Prepare /, 'Preparing '),
         percent: j.progress && j.progress[1] ? Math.round((j.progress[0] / j.progress[1]) * 100) : null,
         to: 'databases',
       });
@@ -166,6 +171,10 @@ class Live {
   async installDatabase(id: string) {
     this.dbJobs[id] = await post<Job>(`/api/databases/${id}/install`);
   }
+  /** Make the copy of an installed Kraken2 database that Kun-peng reads; followed like an install. */
+  async prepareForKunPeng(id: string) {
+    this.dbJobs[KUN_PENG + id] = await post<Job>(`/api/databases/${id}/kun-peng`);
+  }
   async #followDbJobs() {
     for (const [db, j] of Object.entries(this.dbJobs)) {
       if (j.status !== 'running') continue;
@@ -173,10 +182,14 @@ class Live {
         const next = await get<Job>(`/api/jobs/${j.id}`);
         this.dbJobs[db] = next;
         if (next.status === 'done') {
-          toasts.show(`${next.title.replace(/^Install /, '')} is installed.`);
+          toasts.show(
+            db.startsWith(KUN_PENG)
+              ? `${next.title.replace(/^Prepare /, '').replace(/ for Kun-peng$/, '')} is ready for Kun-peng.`
+              : `${next.title.replace(/^Install /, '')} is installed.`,
+          );
           this.refreshDatabases();
         } else if (next.status === 'failed') {
-          toasts.show(next.log.at(-1) ?? 'The download failed.', 'error');
+          toasts.show(next.log.at(-1) ?? 'The download failed.', 'error', undefined, 12000);
         }
       } catch {
         /* try again next tick */

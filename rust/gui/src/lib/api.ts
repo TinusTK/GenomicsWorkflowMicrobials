@@ -195,6 +195,16 @@ export interface Database {
   alternatives?: string;
   installed: boolean;
   path: string;
+  /** a Kraken2 database: the copy of it that Kun-peng reads (made from the installed database) */
+  kun_peng?: {
+    prepared: boolean;
+    path: string;
+    bytes: number;
+    /** folder name of the Kraken2 database the copy was made from */
+    source: string;
+    /** the copy is being made right now (Databases page) */
+    preparing: boolean;
+  };
 }
 
 export interface Job {

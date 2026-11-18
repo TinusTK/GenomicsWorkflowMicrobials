@@ -37,6 +37,10 @@ jobs:
             version: 1.1.0-galaxy0
           - name: mlst-typing
             version: 0.5.0
+          # not in new-releases below: its check that the tool starts is for
+          # the typing tools (python, blastn)
+          - name: kun-peng
+            version: 0.7.13
           # not in new-releases below: a new tbtAMR is only published after it
           # was tried on a known resistant sample (see its Dockerfile)
           - name: tbtamr

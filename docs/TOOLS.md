@@ -35,6 +35,13 @@ requirements:              # used for the hardware warnings
   note: Shown next to the step.
 databases: [kraken2_standard_8]   # ids from databases/catalog.yml
 files: [script.py]         # files/folders in the tool folder the command uses
+# Optional: databases the step is given as $DB_<id> when they are installed
+# (none has to be), and a folder under the databases folder for what the tool
+# keeps itself, given as $USER_DATA (read-only unless user_data_writable).
+# See tools/kun_peng/tool.yml (its own copies of the Kraken2 databases).
+#   optional_databases: [kraken2_standard_8]
+#   user_data: mytool
+#   user_data_writable: true
 
 inputs:
   contigs: {type: fasta, description: Assembled contigs.}

@@ -190,6 +190,12 @@ pub fn warnings(cat: &Catalog, wf: &Workflow, hw: &Value, n_samples: Option<usiz
                 None => add("error", format!("{label} needs the database '{d}', which this app doesn't know."), Some(sid)),
             }
         }
+        // a tool that makes its own copy of a database (Kun-peng): is there one, or one to make it from?
+        match crate::kunpeng::step_check(cat, tool, step, &dbs) {
+            Ok(Some(note)) => add("info", format!("{label}: {note}"), Some(sid)),
+            Ok(None) => {}
+            Err(why) => add("error", why, Some(sid)),
+        }
         disk_per_sample += if num("disk_gb_per_sample") > 0.0 {
             num("disk_gb_per_sample")
         } else {

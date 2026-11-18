@@ -484,7 +484,16 @@ impl<'a> Executor<'a> {
             fs::create_dir_all(&dir).with_context(|| format!("making {}", dir.display()))?;
             env.push(format!("export USER_DATA={}", sq(&dir.to_string_lossy())));
             key.update(user_data_id(&dir));
-            mounts.push((dir, true));
+            mounts.push((dir, !step.user_data_writable));
+        }
+        // databases the step can use when they are there. Not part of the
+        // task's identity: installing or removing one does not run it again.
+        for (d, folder) in &step.optional_databases {
+            let dir = spec.db_dir.join(folder);
+            if dir.is_dir() && !step.databases.contains(d) {
+                env.push(format!("export DB_{d}={}", sq(&dir.to_string_lossy())));
+                mounts.push((dir, true));
+            }
         }
         for (_, f) in &staged {
             if let Some(parent) = f.parent() {

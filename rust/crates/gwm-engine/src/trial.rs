@@ -194,7 +194,17 @@ pub fn run(t: &Trial, backend: &dyn Backend, kill: &AtomicBool) -> Result<TrialR
         let dir = t.db_dir.join(rel);
         fs::create_dir_all(&dir).with_context(|| format!("making {}", dir.display()))?;
         env.push(format!("export USER_DATA={}", sq(&dir.to_string_lossy())));
-        mounts.push((dir, true));
+        mounts.push((dir, !gwm_core::compiler::user_data_writable(tool)));
+    }
+    // databases the tool can use when they are there
+    for d in gwm_core::compiler::optional_databases(tool) {
+        let Some(dir) = t.databases.get(&d).map(|folder| t.db_dir.join(folder)) else {
+            continue;
+        };
+        if dir.is_dir() && !tool.databases.contains(&d) {
+            env.push(format!("export DB_{d}={}", sq(&dir.to_string_lossy())));
+            mounts.push((dir, true));
+        }
     }
     for f in &tool.files {
         let from = tool.dir.join(f);

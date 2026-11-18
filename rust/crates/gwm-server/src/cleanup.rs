@@ -55,7 +55,7 @@ fn installed_images(cat: &Catalog) -> Option<Vec<String>> {
 }
 
 /// Bytes under `dir`; links are counted as links, not followed.
-fn folder_bytes(dir: &Path) -> u64 {
+pub(crate) fn folder_bytes(dir: &Path) -> u64 {
     let Ok(rd) = fs::read_dir(dir) else { return 0 };
     rd.flatten()
         .map(|e| match e.file_type() {
@@ -77,7 +77,7 @@ fn data_folders(cat: &Catalog) -> Vec<PathBuf> {
 }
 
 /// Runs that are going or waiting: nothing is removed under them.
-fn active_runs(cat: &Catalog) -> usize {
+pub(crate) fn active_runs(cat: &Catalog) -> usize {
     runs::list(cat)
         .iter()
         .filter(|r| {

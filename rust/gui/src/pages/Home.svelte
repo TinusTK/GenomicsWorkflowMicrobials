@@ -10,8 +10,30 @@
   let workflows = $state<WorkflowSummary[]>([]);
   get<WorkflowSummary[]>('/api/workflows').then((w) => (workflows = w)).catch(() => {});
 
+  // suggestions the user closed stay closed on this computer (kept by the app's window, not in the data folder)
+  const DISMISSED = 'gwm.dismissed';
+  function readDismissed(): string[] {
+    try {
+      const v = JSON.parse(localStorage.getItem(DISMISSED) ?? '[]');
+      return Array.isArray(v) ? v : [];
+    } catch {
+      return [];
+    }
+  }
+  let dismissed = $state<string[]>(readDismissed());
+  function dismiss(id: string) {
+    dismissed = [...dismissed, id];
+    try {
+      localStorage.setItem(DISMISSED, JSON.stringify(dismissed));
+    } catch {
+      /* it then comes back at the next start */
+    }
+  }
+  /** At or under this much memory Kraken2 is a tight fit (a "16 GB" computer reports a little less). */
+  const LOW_MEMORY_GB = 16.5;
+
   const attention = $derived.by(() => {
-    const out: { icon: string; tone: string; title: string; text: string; action: string; to: string }[] = [];
+    const out: { icon: string; tone: string; title: string; text: string; action: string; to: string; dismiss?: string }[] = [];
     const hw = live.hardware;
     if (hw && !hw.docker && !hw.apptainer)
       out.push({ icon: 'alert', tone: 'bg-danger-soft text-danger', title: 'The tools can\'t start yet', text: hw.docker_error ?? 'No container engine found.', action: 'Set up', to: 'settings' });
@@ -25,6 +47,17 @@
       out.push({ icon: 'db', tone: 'bg-info-soft text-info-ink', title: 'A newer MLST database is available', text: 'PubMLST has changed since your database was downloaded.', action: 'Update', to: 'databases' });
     for (const r of live.runs.filter((r) => r.status === 'failed' || r.status === 'interrupted').slice(0, 2))
       out.push({ icon: 'triangle', tone: 'bg-danger-soft text-danger', title: `Run "${r.name}" ${r.status === 'failed' ? 'failed' : 'was interrupted'}`, text: 'Open it to see why, then resume it: finished steps are kept.', action: 'Open', to: `runs/${r.id}` });
+    // a suggestion, last and closable: with 16 GB or less, Kun-peng identifies species in little memory
+    if (hw && hw.memory_gb > 0 && hw.memory_gb <= LOW_MEMORY_GB && !dismissed.includes('kun_peng_low_memory'))
+      out.push({
+        icon: 'info',
+        tone: 'bg-info-soft text-info-ink',
+        title: 'Identifying species? Try Kun-peng',
+        text: `The tools have ${Math.round(hw.memory_gb)} GB of memory here. Kun-peng uses the Kraken2 databases a piece at a time, so it needs far less memory than Kraken2.`,
+        action: 'Show Kun-peng',
+        to: 'tools?open=kun_peng',
+        dismiss: 'kun_peng_low_memory',
+      });
     return out;
   });
 </script>
@@ -59,6 +92,10 @@
             <span class="text-[13px] text-muted">{a.text}</span>
           </span>
           <Button size="sm" onclick={() => go(a.to)}>{a.action}</Button>
+          {#if a.dismiss}
+            {@const id = a.dismiss}
+            <Button size="sm" variant="quiet" onclick={() => dismiss(id)}>Dismiss</Button>
+          {/if}
         </div>
       {:else}
         <div class="flex items-center gap-3 text-sm text-muted">

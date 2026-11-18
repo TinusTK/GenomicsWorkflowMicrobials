@@ -235,6 +235,23 @@ pub fn user_data(tool: &Tool) -> Option<String> {
         .map(str::to_string)
 }
 
+/// In a tool.yml: `user_data_writable: true`. A step may write to its
+/// `$USER_DATA` (Kun-peng: the first step that needs the copy of a Kraken2
+/// database makes it there).
+pub fn user_data_writable(tool: &Tool) -> bool {
+    tool.extra.get("user_data_writable").and_then(Value::as_bool) == Some(true)
+}
+
+/// In a tool.yml: `optional_databases: [ids]`, databases a step is given as
+/// `$DB_<id>` when they are installed. Unlike `databases:` none has to be.
+pub fn optional_databases(tool: &Tool) -> Vec<String> {
+    tool.extra
+        .get("optional_databases")
+        .and_then(Value::as_sequence)
+        .map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
 // ---------------------------------------------------------------- run plan
 
 /// Everything the engine needs to run a workflow; saved as plan.json in the run.
@@ -282,6 +299,13 @@ pub struct PlanStep {
     /// when the step runs. Unlike `databases` it need not hold anything yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_data: Option<String>,
+    /// the step may write to its user data
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub user_data_writable: bool,
+    /// databases given to the step as `$DB_<id>` when installed (none has to
+    /// be): id -> folder name under the databases folder
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub optional_databases: IndexMap<String, String>,
     pub files: Vec<String>,
     /// results folder, relative to the run's results/ (`{sample}` = sample id)
     pub publish: String,
@@ -342,6 +366,13 @@ pub fn plan(
                 }
             }
         }
+        let mut optional_dbs = IndexMap::new();
+        for d in optional_databases(tool) {
+            let Some(db) = databases.get(&d) else {
+                return err(format!("step {}: database '{d}' is not in databases/catalog.yml", r.id));
+            };
+            optional_dbs.insert(d, db.install_dir.clone());
+        }
         let per_sample = tool.per_sample();
         let publish = step.publish.clone().unwrap_or_else(|| {
             if per_sample {
@@ -394,6 +425,8 @@ pub fn plan(
             databases: step_dbs,
             db_alias,
             user_data: user_data(tool),
+            user_data_writable: user_data_writable(tool),
+            optional_databases: optional_dbs,
             files: tool.files.clone(),
             publish,
             versions: tool.version_commands(),

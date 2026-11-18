@@ -1,0 +1,191 @@
+id: kun_peng
+name: Kun-peng
+version: 0.7.13
+category: Species identification
+description: >-
+  Assigns each read to a taxon the way Kraken2 does, with the same databases
+  and the same kind of report, but holds only one piece of the database in
+  memory at a time. A database that is too big for this computer's memory
+  with Kraken2 (Standard-16, the full Standard) can be used with it. It reads
+  its own copy of a Kraken2 database: the app makes that copy from a Kraken2
+  database you installed, the first time it is needed or ahead of time on
+  the Databases page. The copy stands on its own. Bracken is built in: with
+  its switch on (the default) the step also gives Bracken's estimate of the
+  share of reads per species, from the same copy.
+homepage: https://github.com/eric9n/Kun-peng
+license: MIT
+citation: "Chen Q et al. (2026) Kun-peng enables scalable and accurate pan-domain metagenomic classification. Briefings in Bioinformatics 27(2):bbag119."
+# the app's own container (containers/kun-peng): there is no BioContainers image
+container: ghcr.io/tinustk/gwm-kun-peng:0.7.13
+scope: per_sample
+resources: {cpus: 8, memory_gb: 6}
+requirements:
+  memory_gb: 4
+  disk_gb_per_sample: 2
+  note: Memory does not grow with the database (2 GB pieces). The copy of a database takes as much disk space as the database itself.
+# the copies of the Kraken2 databases, under the databases folder: one folder
+# per database id. A step gets it as $USER_DATA and may write to it (the first
+# step that needs a copy makes it, with prepare.sh).
+user_data: kun_peng
+user_data_writable: true
+# given to a step as $DB_<id> when installed; none of them has to be
+optional_databases: [kraken2_standard_8, kraken2_standard_16, kraken2_standard]
+files: [prepare.sh]
+
+inputs:
+  reads: {type: reads, description: Paired reads.}
+
+outputs:
+  report: {type: txt, path: "out/{sample}.kun_peng.report.txt", description: "Kraken-style report (reads per taxon), the same layout as Kraken2's."}
+  abundance: {type: tsv, path: "out/{sample}.kun_peng.bracken.tsv", optional: true, description: "Bracken: estimated reads and fraction per species (when Bracken is switched on)."}
+  bracken_report: {type: txt, path: "out/{sample}.kun_peng.bracken.report.txt", optional: true, description: "Bracken: Kraken-style report after re-estimation (when Bracken is switched on)."}
+
+settings:
+  database:
+    label: Database
+    type: select
+    options: [auto, kraken2_standard_8, kraken2_standard_16, kraken2_standard]
+    option_labels:
+      auto: The biggest one ready on this computer
+      kraken2_standard_8: Standard-8
+      kraken2_standard_16: Standard-16
+      kraken2_standard: Standard, full size
+    default: auto
+    description: >-
+      Which Kraken2 database to use. Auto takes the biggest one that already
+      has a Kun-peng copy, else the biggest Kraken2 database installed (its
+      copy is then made first, once). The database used is recorded with the run.
+  confidence:
+    label: Confidence threshold
+    type: number
+    default: 0.0
+    description: 0 to 1. Higher values classify fewer reads but with more confidence.
+  min_base_quality:
+    label: Minimum base quality
+    type: integer
+    default: 0
+    description: Bases below this quality are ignored when classifying.
+  minimum_hit_groups:
+    label: Minimum hit groups
+    type: integer
+    default: 2
+    description: >-
+      Matches with the database a read needs before it is classified. With
+      hit groups counted Kun-peng's way (below) this has almost no effect.
+  hit_groups:
+    label: Hit groups counted
+    type: select
+    options: [kun_peng, kraken2]
+    option_labels:
+      kun_peng: Kun-peng's way (as released)
+      kraken2: Kraken2's way (results close to Kraken2)
+    default: kun_peng
+    description: >-
+      Kun-peng as released lets a read through on a single match, so it
+      classifies more reads than Kraken2 (and more weak, low-level hits).
+      Kraken2's way counts the matches the way Kraken2 does: the same reads
+      stay unclassified as with Kraken2 and the species counts are very close
+      to Kraken2's. It uses the app's own build of Kun-peng with that one
+      line changed; the choice is recorded with the run.
+
+  bracken:
+    label: Bracken abundance estimate
+    type: boolean
+    default: true
+    description: >-
+      Also run Bracken on the report: it re-estimates how many reads belong to
+      each species. Gives the abundance table and a second report. Switch it
+      off for the Kun-peng report alone.
+  bracken_level:
+    label: "Bracken: taxonomic level"
+    type: select
+    options: [S, G, F, O, C, P, D]
+    default: S
+    description: "Level to estimate at: S species, G genus, F family, ... D domain."
+  bracken_threshold:
+    label: "Bracken: minimum reads"
+    type: integer
+    default: 10
+    description: Taxa with fewer reads than this are not re-estimated.
+  bracken_read_len:
+    label: "Bracken: read length"
+    type: integer
+    default: 150
+    description: Read length the database's Bracken k-mer file was built for (100, 150, 200, 250 or 300).
+
+versions:
+  kun_peng: kun_peng --version 2>&1 | awk '{print $NF}'
+  kun_peng_bracken: echo 3.0
+
+command: |
+  # biggest first
+  order="kraken2_standard kraken2_standard_16 kraken2_standard_8"
+  pick="$S_database"
+  if [ "$pick" = auto ]; then
+      pick=""
+      for d in $order; do
+          if [ -z "$pick" ] && [ -f "$USER_DATA/$d/hash_config.k2d" ]; then pick=$d; fi
+      done
+      for d in $order; do
+          v="DB_$d"
+          if [ -z "$pick" ] && [ -n "${!v:-}" ]; then pick=$d; fi
+      done
+      if [ -z "$pick" ]; then
+          echo "ERROR: Kun-peng needs a Kraken2 database: install one on the Databases page" >&2
+          exit 1
+      fi
+  fi
+  db="$USER_DATA/$pick"
+  if [ ! -f "$db/hash_config.k2d" ]; then
+      v="DB_$pick"
+      src="${!v:-}"
+      if [ -z "$src" ]; then
+          echo "ERROR: the database $pick has no Kun-peng copy and is not installed: install it on the Databases page, or pick another one in this step's Database setting" >&2
+          exit 1
+      fi
+      bash "$TOOL_DIR/prepare.sh" "$src" "$db"
+  fi
+  mkdir -p chunks kp_out
+  # the program as released, or the build that counts hit groups the way Kraken2 does
+  prog=kun_peng
+  if [ "$S_hit_groups" = kraken2 ]; then prog=kun_peng_k2; fi
+  "$prog" classify \
+      --db "$db" \
+      --chunk-dir chunks \
+      --output-dir kp_out \
+      --num-threads "$CPUS" \
+      --confidence-threshold "$S_confidence" \
+      --minimum-quality-score "$S_min_base_quality" \
+      --minimum-hit-groups "$S_minimum_hit_groups" \
+      --paired-end-processing "$IN_reads_1" "$IN_reads_2" > classify.log
+  report=$(ls kp_out/*.kreport2 | head -1)
+  cp "$report" "out/$SAMPLE.kun_peng.report.txt"
+  rm -rf chunks kp_out
+  if [ "$S_bracken" = true ]; then
+      # the k-mer file of the copy; a copy made without it: the Kraken2 database's own
+      kmers="$db/database${S_bracken_read_len}mers.kmer_distrib"
+      v="DB_$pick"
+      if [ ! -f "$kmers" ] && [ -n "${!v:-}" ]; then kmers="${!v}/database${S_bracken_read_len}mers.kmer_distrib"; fi
+      if [ ! -f "$kmers" ]; then
+          echo "ERROR: Bracken has no k-mer file for $S_bracken_read_len bp reads in the database $pick (they come for 50, 75, 100, 150, 200, 250 and 300 bp): change Bracken's read length, or switch Bracken off" >&2
+          exit 1
+      fi
+      # a sample with too few reads at that level has nothing to estimate: the step still gives its report
+      if python3 /opt/bracken/est_abundance.py \
+              -i "out/$SAMPLE.kun_peng.report.txt" \
+              -o "out/$SAMPLE.kun_peng.bracken.tsv" \
+              --out-report "out/$SAMPLE.kun_peng.bracken.report.txt" \
+              -k "$kmers" -l "$S_bracken_level" -t "$S_bracken_threshold" > bracken.log 2>&1; then
+          echo "bracken: level $S_bracken_level, minimum reads $S_bracken_threshold, read length $S_bracken_read_len" >> .ntg_notes
+      else
+          rm -f "out/$SAMPLE.kun_peng.bracken.tsv" "out/$SAMPLE.kun_peng.bracken.report.txt"
+          echo "bracken: no estimate ($(tail -1 bracken.log))" >> .ntg_notes
+          echo "Bracken gave no estimate for $SAMPLE: $(tail -1 bracken.log)" >&2
+      fi
+  fi
+  if [ "$S_hit_groups" = kraken2 ]; then
+      echo "hit_groups: counted the way Kraken2 does (the app's build of Kun-peng with that one line changed)" >> .ntg_notes
+  else
+      echo "hit_groups: counted Kun-peng's own way (as released)" >> .ntg_notes
+  fi
+  echo "database: $pick ($(cat "$db/source.txt" 2>/dev/null || echo unknown))" >> .ntg_notes

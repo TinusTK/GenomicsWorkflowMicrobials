@@ -127,6 +127,7 @@ workflow):
 | Step | Tool | Version |
 |---|---|---|
 | MLST (PubMLST, with an EnteroBase cross-check) | [MLST typing](https://github.com/TinusTK/mlst-typing) | 0.5.0 |
+| Species identification with little memory, from a Kraken2 database (Bracken built in) | [Kun-peng](https://github.com/eric9n/Kun-peng) | 0.7.13 |
 | Tuberculosis lineage and drug resistance | [TBProfiler](https://github.com/jodyphelan/TBProfiler) | 6.7.0 |
 | Tuberculosis drug resistance | [tbtAMR](https://github.com/MDU-PHL/tbtamr) | 1.0.4 |
 
@@ -214,9 +215,22 @@ nothing is removed while a run is going. Then uninstall the app the usual way.
 The app is meant to work with any tool that has a GitHub page.
 
 Some tools beyond the RDH workflow come built in and are ready to use in your
-own workflows: MLST typing, TBProfiler and tbtAMR (tuberculosis drug
+own workflows: MLST typing, Kun-peng, TBProfiler and tbtAMR (tuberculosis drug
 resistance). Pasting the link of a built-in tool tells you so before anything
 is added.
+
+Kun-peng identifies species the way Kraken2 does, from the same databases, but
+holds only a piece of the database in memory at a time, so a database too big
+for your computer with Kraken2 can still be used. It reads its own copy of a
+Kraken2 database. The app makes that copy from a Kraken2 database you
+installed: by itself the first time a Kun-peng step needs it, or ahead of time
+on the Databases page (**Prepare for Kun-peng**). The copy takes as much disk
+as the database. Each works without the other: on the Databases page you can
+remove the Kraken2 database and keep the Kun-peng copy, or remove the copy.
+Bracken is built into the Kun-peng step (a switch, on by default). Kun-peng as
+released classifies more reads than Kraken2, because it lets a read through on
+a single match; the step's setting **Hit groups counted** can be set to
+Kraken2's way for results close to Kraken2's.
 
 MLST typing comes with PubMLST data submitted up to 31 December 2024, which
 is free. PubMLST gives newer data only to people with their own account: enter
