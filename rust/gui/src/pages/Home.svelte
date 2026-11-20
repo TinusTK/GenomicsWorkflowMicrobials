@@ -4,7 +4,7 @@
   import Icon from '../lib/ui/Icon.svelte';
   import Pill from '../lib/ui/Pill.svelte';
   import { get, type WorkflowSummary } from '../lib/api';
-  import { live, when } from '../lib/live.svelte';
+  import { KEY_DBS, KEY_DB_TOOLS, live, when } from '../lib/live.svelte';
   import { go, href } from '../lib/router.svelte';
 
   let workflows = $state<WorkflowSummary[]>([]);
@@ -40,11 +40,14 @@
     for (const d of live.missingDb)
       out.push({ icon: 'alert', tone: 'bg-warn-soft text-warn', title: `${d.name} is not installed`, text: `Steps that need it are switched off until it is there (${d.size_gb} GB).`, action: 'Install', to: 'databases' });
     // MLST typing: the pre-2025 database, or an up-to-date one with the user's own PubMLST key
-    const m = live.mlst;
-    if (m?.available && !m.answered && m.job?.status !== 'running')
-      out.push({ icon: 'db', tone: 'bg-warn-soft text-warn', title: 'MLST typing: choose its database', text: 'It uses PubMLST data up to 2024 for now. Keep that, or enter your own PubMLST key for the latest database.', action: 'Choose', to: 'tools?open=mlst_typing' });
-    else if (m?.last_check?.newer && m.job?.status !== 'running')
-      out.push({ icon: 'db', tone: 'bg-info-soft text-info-ink', title: 'A newer MLST database is available', text: 'PubMLST has changed since your database was downloaded.', action: 'Update', to: 'databases' });
+    // (asked here for MLST typing only: S. pyogenes typing is chosen on its own page, for those who use it)
+    for (const tool of KEY_DB_TOOLS) {
+      const m = live.keyDb[tool];
+      if (KEY_DBS[tool].askOnHome && m?.available && !m.answered && m.job?.status !== 'running')
+        out.push({ icon: 'db', tone: 'bg-warn-soft text-warn', title: `${KEY_DBS[tool].tool}: choose its database`, text: 'It uses PubMLST data up to 2024 for now. Keep that, or enter your own PubMLST key for the latest database.', action: 'Choose', to: `tools?open=${tool}` });
+      else if (m?.last_check?.newer && m.job?.status !== 'running')
+        out.push({ icon: 'db', tone: 'bg-info-soft text-info-ink', title: `A newer ${KEY_DBS[tool].db} database is available`, text: 'PubMLST has changed since your database was downloaded.', action: 'Update', to: 'databases' });
+    }
     for (const r of live.runs.filter((r) => r.status === 'failed' || r.status === 'interrupted').slice(0, 2))
       out.push({ icon: 'triangle', tone: 'bg-danger-soft text-danger', title: `Run "${r.name}" ${r.status === 'failed' ? 'failed' : 'was interrupted'}`, text: 'Open it to see why, then resume it: finished steps are kept.', action: 'Open', to: `runs/${r.id}` });
     // a suggestion, last and closable: with 16 GB or less, Kun-peng identifies species in little memory

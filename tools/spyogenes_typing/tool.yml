@@ -1,0 +1,120 @@
+id: spyogenes_typing
+name: S. pyogenes typing
+version: 1.0.0
+category: Typing
+description: >-
+  Typing of Streptococcus pyogenes (group A Streptococcus) assemblies against
+  PubMLST, following PubMLST's own typing rules: emm type and subtype,
+  emm-like genes, emm cluster and pattern, 7-gene MLST, M1UK lineage for
+  emm1, superantigen and resistance genes, FCT-region form and pilin type,
+  with a species check. One table with a row per sample; the Warnings column
+  says what needs checking, and the database version is on every row. It
+  comes with PubMLST data to 31 December 2024; with your own PubMLST key the
+  app downloads the current data (Databases page).
+homepage: https://github.com/TinusTK/spyogenes-typing
+license: MIT
+citation: "TinusTK. spyogenes-typing, https://github.com/TinusTK/spyogenes-typing; PubMLST, Jolley et al. 2018 (emm data curated by the CDC); emm clusters, Sanderson-Smith et al. 2014; emm patterns and pilin types, Bessen et al. 2024; M1UK, Lynskey et al. 2019."
+container: ghcr.io/tinustk/gwm-spyogenes-typing:1.0.0-galaxy0
+# what the user set up for this tool, under the databases folder: their own
+# up-to-date database (PubMLST key) and the choice which one is in use. A
+# step gets it as $USER_DATA (rust/crates/gwm-server/src/mlstdb.rs).
+user_data: spyogenes_typing/own
+scope: all_samples
+resources: {cpus: 4, memory_gb: 2}
+requirements: {memory_gb: 1}
+
+inputs:
+  contigs: {type: fasta, description: Assembled contigs of every sample.}
+
+outputs:
+  report: {type: tsv, path: out/spyogenes_typing.tsv, description: "One row per sample: emm, emmL, emmCG, emm cluster and pattern, ST and alleles, M1 lineage, superantigens, resistance genes, FCT type, warnings, database."}
+  json: {type: any, path: out/spyogenes_typing.json, optional: true, description: The same results as JSON (when switched on).}
+  hits: {type: tsv, path: out/spyogenes_typing.hits.tsv, optional: true, description: "Every place something hit: closest allele, identity, coverage, contig and position (when switched on)."}
+
+settings:
+  database:
+    label: Database
+    type: select
+    options: [in_use, builtin, own]
+    option_labels:
+      in_use: The one in use (chosen on the Databases page)
+      builtin: Pre-2025 database (built in)
+      own: My up-to-date database (my PubMLST key)
+    default: in_use
+    description: PubMLST data the step types against. The built-in database holds data to 31 December 2024; an up-to-date one is downloaded with your own PubMLST key on the Databases page.
+  allele_layout:
+    label: MLST allele layout
+    type: select
+    options: [separate, combined, none]
+    option_labels:
+      separate: One column per allele (ALLELE1 to ALLELE7)
+      combined: Combined in one column (ALLELES)
+      none: No allele columns (only ST and MLST status)
+    default: separate
+    description: How the seven MLST alleles are shown in the report.
+  minid:
+    label: Minimum identity (%)
+    type: number
+    default: 95
+    description: Identity of a full-length allele needed to name it, for emm and MLST (80-100).
+  json:
+    label: Also write JSON
+    type: boolean
+    default: false
+    description: The same results as a JSON file.
+  hits:
+    label: Also write every hit
+    type: boolean
+    default: false
+    description: A table of every place something hit, with the closest allele, identity, coverage, contig and position.
+
+versions:
+  spyogenes_typing: python /opt/spyogenes_typing/spyogenes_typing.py --db /opt/spyogenes_typing/database --version 2>&1 | awk '{print $2}'
+  # the database the step typed against ($SPY_DB is set by the command below)
+  spyogenes_typing_db: grep . "${SPY_DB:-/opt/spyogenes_typing/database}/VERSION.txt" | head -1
+  blast: |-
+    blastn -version 2>&1 | head -1 | sed 's/^blastn: //'
+
+galaxy:
+  tool: tinustk/spyogenes_typing/spyogenes_typing
+  inputs: {input: contigs}
+  outputs: {report: report, json_out: json, hits_out: hits}
+  settings:
+    allele_layout: allele_layout
+    minid: adv.minid
+    json: adv.want_json
+    hits: adv.want_hits
+
+command: |
+  # which database: the one built into the container (PubMLST data to 31 Dec
+  # 2024), or the user's own, downloaded with their PubMLST key
+  SPY_DB=/opt/spyogenes_typing/database
+  own="${USER_DATA:-}/spyogenes-typing/database"
+  use="${S_database:-in_use}"
+  if [ "$use" = in_use ]; then
+      use=$(cat "${USER_DATA:-}/in_use" 2>/dev/null || echo builtin)
+      # chosen but gone (removed since): the built-in one
+      [ -f "$own/blast/spyogenes.nsq" ] || use=builtin
+  fi
+  if [ "$use" = own ]; then
+      if [ ! -f "$own/blast/spyogenes.nsq" ]; then
+          echo "This step is set to your up-to-date S. pyogenes database, but it is not downloaded. Enter your PubMLST key on the Databases page, or set the step's Database to the pre-2025 one." >&2
+          exit 1
+      fi
+      SPY_DB="$own"
+  fi
+  # every sample's file with its name: the file name without .gz, the FASTA
+  # ending and the assembler's ".contigs"
+  : > samples.fofn
+  for f in "$IN_contigs_DIR"/*; do
+      n=$(basename "$f"); n=${n%.gz}; n=${n%.*}; n=${n%.contigs}
+      printf '%s\t%s\n' "$f" "$n" >> samples.fofn
+  done
+  args=(--minid "$S_minid")
+  if [ "$S_allele_layout" = combined ]; then args+=(--combine-alleles); fi
+  if [ "$S_allele_layout" = none ]; then args+=(--no-alleles); fi
+  if [ "$S_json" = true ]; then args+=(--json out/spyogenes_typing.json); fi
+  if [ "$S_hits" = true ]; then args+=(--hits out/spyogenes_typing.hits.tsv); fi
+  python /opt/spyogenes_typing/spyogenes_typing.py --db "$SPY_DB" \
+      --threads "$CPUS" --fofn samples.fofn "${args[@]}" \
+      --outfile out/spyogenes_typing.tsv

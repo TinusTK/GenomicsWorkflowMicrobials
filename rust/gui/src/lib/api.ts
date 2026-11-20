@@ -217,7 +217,7 @@ export interface Job {
   result?: unknown;
 }
 
-/** A download or a check of MLST typing's own database, going or just finished. */
+/** A download or a check of a typing tool's own database, going or just finished. */
 export interface MlstJob {
   kind: 'download' | 'check' | 'sign-in';
   id?: string;
@@ -235,9 +235,9 @@ export interface MlstJob {
   } | null;
 }
 
-/** MLST typing's database: the pre-2025 one it comes with, or the user's own (their PubMLST key). */
+/** A typing tool's PubMLST database (MLST typing, S. pyogenes typing): the pre-2025 one it comes with, or the user's own (their PubMLST key). */
 export interface MlstDb {
-  /** false when the MLST typing tool here has no own database (an older one) */
+  /** false when the tool here has no own database (an older one) */
   available: boolean;
   /** the user picked the pre-2025 database or entered a key */
   answered?: boolean;

@@ -368,10 +368,10 @@ fn engine_runs() -> Option<usize> {
     Some(list.as_array()?.iter().filter(|r| matches!(r["status"].as_str(), Some("running" | "queued"))).count())
 }
 
-/// The up-to-date MLST database is being downloaded (about 1.5 hours): like a
-/// run, it must not be cut off by Stop or Quit.
+/// An up-to-date PubMLST database (MLST typing: about 1.5 hours; S. pyogenes
+/// typing) is being downloaded: like a run, it must not be cut off by Stop or Quit.
 fn download_going() -> bool {
-    engine_get("/api/mlst-database").is_some_and(|m| m["job"]["status"] == "running")
+    engine_get("/api/pubmlst-database").is_some_and(|m| m["working"] == true)
         // a Kraken2 database being prepared for Kun-peng (Databases page)
         || engine_get("/api/databases")
             .is_some_and(|d| d.as_array().is_some_and(|d| d.iter().any(|db| db["kun_peng"]["preparing"] == true)))

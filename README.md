@@ -132,6 +132,7 @@ workflow):
 | Step | Tool | Version |
 |---|---|---|
 | MLST (PubMLST, with an EnteroBase cross-check) | [MLST typing](https://github.com/TinusTK/mlst-typing) | 0.5.0 |
+| *S. pyogenes* typing: emm type and subtype, emm cluster and pattern, MLST, M1UK lineage, superantigens, resistance genes, FCT region | [S. pyogenes typing](https://github.com/TinusTK/spyogenes-typing) | 1.0.0 |
 | Species identification with little memory, from a Kraken2 database (Bracken built in) | [Kun-peng](https://github.com/eric9n/Kun-peng) | 0.7.13 |
 | Tuberculosis lineage and drug resistance | [TBProfiler](https://github.com/jodyphelan/TBProfiler) | 6.7.0 |
 | Tuberculosis drug resistance | [tbtAMR](https://github.com/MDU-PHL/tbtamr) | 1.0.4 |
@@ -224,8 +225,8 @@ nothing is removed while a run is going. Then uninstall the app the usual way.
 The app is meant to work with any tool that has a GitHub page.
 
 Some tools beyond the RDH workflow come built in and are ready to use in your
-own workflows: MLST typing, Kun-peng, TBProfiler and tbtAMR (tuberculosis drug
-resistance). Pasting the link of a built-in tool tells you so before anything
+own workflows: MLST typing, S. pyogenes typing, Kun-peng, TBProfiler and
+tbtAMR (tuberculosis drug resistance). Pasting the link of a built-in tool tells you so before anything
 is added.
 
 Kun-peng identifies species the way Kraken2 does, from the same databases, but
@@ -248,6 +249,16 @@ your own PubMLST key (a Public data access key or an OAuth key) on the
 to your computer (about 1.5 hours, once), checks for newer ones when you ask,
 and lets each workflow step choose which database it types against. The key
 stays on your computer and is sent to PubMLST only.
+
+S. pyogenes typing types group A *Streptococcus* assemblies against PubMLST,
+by PubMLST's own typing rules, into one table with a row per sample: emm type
+and subtype, emm-like genes, emm cluster and pattern, MLST, M1UK lineage,
+superantigen and resistance genes and the FCT-region form with its pilin
+type. Read its Warnings column first: it says what needs checking. Like MLST
+typing it comes with PubMLST data to 31 December 2024 and can download the
+current data with your own PubMLST key (a few minutes). It has its own box on
+the **Databases** page and keeps its own key: a key entered for MLST typing is
+not used for it.
 
 **Tools › Add a tool**, and paste the tool's GitHub link. Then one of two
 things happens:

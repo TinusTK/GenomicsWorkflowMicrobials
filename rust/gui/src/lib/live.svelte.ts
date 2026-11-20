@@ -26,6 +26,35 @@ export interface Activity {
 /** in `dbJobs`: the job that makes a database's Kun-peng copy is kept under this + the database id */
 export const KUN_PENG = 'kun_peng:';
 
+/**
+ * The built-in typing tools that can have an up-to-date PubMLST database of
+ * the user's own (their PubMLST key), by tool id, and how each is named on
+ * screen. Each tool has its own key and database. Keep in step with `KINDS`
+ * in gwm-server/src/mlstdb.rs.
+ */
+export const KEY_DBS = {
+  mlst_typing: {
+    tool: 'MLST typing',
+    db: 'MLST',
+    newer: 'alleles and sequence types',
+    time: 'about 1.5 hours',
+    builtin: 'PubMLST data to 31 December 2024, plus the current EnteroBase schemes.',
+    /** Home asks the user to choose until they have */
+    askOnHome: true,
+  },
+  spyogenes_typing: {
+    tool: 'S. pyogenes typing',
+    db: 'S. pyogenes',
+    newer: 'emm, MLST, resistance and FCT alleles and sequence types',
+    time: 'a few minutes',
+    builtin: 'PubMLST data to 31 December 2024, with the emm cluster, emm pattern and pilin type tables.',
+    askOnHome: false,
+  },
+} as const;
+export type KeyDbTool = keyof typeof KEY_DBS;
+export const KEY_DB_TOOLS = Object.keys(KEY_DBS) as KeyDbTool[];
+export const isKeyDbTool = (id: string): id is KeyDbTool => id in KEY_DBS;
+
 const TASK_DONE = ['COMPLETED', 'CACHED', 'SKIPPED'];
 
 class Live {
@@ -54,8 +83,8 @@ class Live {
 
   /** database id -> its install, going or just ended (kept here so it shows on every page) */
   dbJobs = $state<Record<string, Job>>({});
-  /** MLST typing's own database: the choice, the key (never the key itself) and its download */
-  mlst = $state<MlstDb | null>(null);
+  /** per typing tool, its own PubMLST database: the choice, the key (never the key itself) and its download */
+  keyDb = $state<Partial<Record<KeyDbTool, MlstDb>>>({});
   /** run id -> how far it is, 0 to 100 */
   runPercent = $state<Record<string, number>>({});
 
@@ -70,13 +99,15 @@ class Live {
         percent: j.progress && j.progress[1] ? Math.round((j.progress[0] / j.progress[1]) * 100) : null,
         to: 'databases',
       });
-    const m = this.mlst?.job;
-    if (m?.status === 'running' && m.kind !== 'sign-in')
-      out.push({
-        label: m.kind === 'check' ? 'Checking for a newer MLST database' : 'Downloading the MLST database',
-        percent: m.progress && m.progress[1] ? Math.round((m.progress[0] / m.progress[1]) * 100) : null,
-        to: 'databases',
-      });
+    for (const tool of KEY_DB_TOOLS) {
+      const m = this.keyDb[tool]?.job;
+      if (m?.status === 'running' && m.kind !== 'sign-in')
+        out.push({
+          label: m.kind === 'check' ? `Checking for a newer ${KEY_DBS[tool].db} database` : `Downloading the ${KEY_DBS[tool].db} database`,
+          percent: m.progress && m.progress[1] ? Math.round((m.progress[0] / m.progress[1]) * 100) : null,
+          to: 'databases',
+        });
+    }
     if (this.updating) out.push({ label: 'Updating the app', percent: this.updatePercent, to: 'settings' });
     return out;
   });
@@ -197,25 +228,31 @@ class Live {
     }
   }
 
-  /** MLST typing's own database; says so once when a download or a check ends. */
-  async refreshMlst() {
+  /** Every typing tool's own PubMLST database. */
+  refreshKeyDbs() {
+    for (const tool of KEY_DB_TOOLS) this.refreshKeyDb(tool);
+  }
+
+  /** One typing tool's own PubMLST database; says so once when a download or a check ends. */
+  async refreshKeyDb(tool: KeyDbTool) {
     let next: MlstDb;
     try {
-      next = await get<MlstDb>('/api/mlst-database');
+      next = await get<MlstDb>(`/api/pubmlst-database/${tool}`);
     } catch {
       return;
     }
-    const was = this.mlst?.job;
+    const db = KEY_DBS[tool].db;
+    const was = this.keyDb[tool]?.job;
     const now = next.job;
-    this.mlst = next;
+    this.keyDb[tool] = next;
     if (was?.status !== 'running' || !now || now.status === 'running') return;
     if (now.status === 'failed') {
-      toasts.show(`MLST database: ${now.message ?? 'it did not work.'}`, 'error', undefined, 12000);
+      toasts.show(`${db} database: ${now.message ?? 'it did not work.'}`, 'error', undefined, 12000);
     } else if (now.kind === 'check') {
       toasts.show(
         now.result?.newer
-          ? `A newer MLST database is available (${now.result.schemes_newer} scheme${now.result.schemes_newer === 1 ? '' : 's'} changed). Update it on the Databases page.`
-          : 'Nothing is newer than your MLST database: no need to update.',
+          ? `A newer ${db} database is available (${now.result.schemes_newer} scheme${now.result.schemes_newer === 1 ? '' : 's'} changed). Update it on the Databases page.`
+          : `Nothing is newer than your ${db} database: no need to update.`,
         now.result?.newer ? 'info' : 'ok',
         undefined,
         10000,
@@ -223,9 +260,9 @@ class Live {
     } else if (now.kind === 'download') {
       toasts.show(
         now.result?.changed
-          ? 'The up-to-date MLST database is downloaded and in use.'
+          ? `The up-to-date ${db} database is downloaded and in use.`
           : now.result?.own_database
-            ? 'Your MLST database was already up to date: nothing to download.'
+            ? `Your ${db} database was already up to date: nothing to download.`
             : 'PubMLST gave nothing newer than the pre-2025 database, which stays in use.',
         'ok',
         undefined,
@@ -253,14 +290,15 @@ class Live {
     this.refreshRuns();
     this.refreshHardware();
     this.refreshDatabases();
-    this.refreshMlst();
+    this.refreshKeyDbs();
     setInterval(() => this.refreshUsage(), 4000);
     setInterval(() => this.refreshRuns(), 5000);
     setInterval(() => this.#followDbJobs(), 1500);
     // a download is followed closely; otherwise a look now and then is enough
     let tick = 0;
     setInterval(() => {
-      if (this.mlst?.job?.status === 'running' || ++tick % 15 === 0) this.refreshMlst();
+      const look = ++tick % 15 === 0;
+      for (const tool of KEY_DB_TOOLS) if (look || this.keyDb[tool]?.job?.status === 'running') this.refreshKeyDb(tool);
     }, 2000);
     // until the containers are ready, keep looking (Docker can take a minute to start)
     setInterval(() => {

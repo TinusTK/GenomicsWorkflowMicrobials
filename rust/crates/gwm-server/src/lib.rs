@@ -120,14 +120,15 @@ pub async fn serve(addr: SocketAddr, cat: Catalog, gui: Option<PathBuf>) -> anyh
         .route("/api/databases/{id}/remove", post(remove_database))
         .route("/api/databases/{id}/kun-peng", post(kunpeng_prepare))
         .route("/api/databases/{id}/kun-peng/remove", post(kunpeng_remove))
-        .route("/api/mlst-database", get(mlst_status))
-        .route("/api/mlst-database/use", post(mlst_use))
-        .route("/api/mlst-database/key", post(mlst_key))
-        .route("/api/mlst-database/oauth/start", post(mlst_oauth_start))
-        .route("/api/mlst-database/oauth/finish", post(mlst_oauth_finish))
-        .route("/api/mlst-database/update", post(mlst_update))
-        .route("/api/mlst-database/check", post(mlst_check))
-        .route("/api/mlst-database/remove", post(mlst_remove))
+        .route("/api/pubmlst-database", get(keydb_working))
+        .route("/api/pubmlst-database/{tool}", get(keydb_status))
+        .route("/api/pubmlst-database/{tool}/use", post(keydb_use))
+        .route("/api/pubmlst-database/{tool}/key", post(keydb_key))
+        .route("/api/pubmlst-database/{tool}/oauth/start", post(keydb_oauth_start))
+        .route("/api/pubmlst-database/{tool}/oauth/finish", post(keydb_oauth_finish))
+        .route("/api/pubmlst-database/{tool}/update", post(keydb_update))
+        .route("/api/pubmlst-database/{tool}/check", post(keydb_check))
+        .route("/api/pubmlst-database/{tool}/remove", post(keydb_remove))
         .route("/api/jobs/{id}", get(get_job))
         .route("/api/browse", get(browse))
         .route("/api/reads", post(pair_reads))
@@ -468,63 +469,78 @@ async fn install_database(State(a): State<App>, UrlPath(id): UrlPath<String>) ->
     }))
 }
 
-// ---------------------------------------------------------------- MLST typing's own database
+// ---------------------------------------------------------------- a typing tool's own PubMLST database
+// {tool} = mlst_typing or spyogenes_typing (mlstdb::KINDS): each has its own key and database
 
-/// Where the user's own MLST database stands (never the key itself).
-async fn mlst_status(State(a): State<App>) -> Api {
-    ok(tokio::task::spawn_blocking(move || mlstdb::status(&a.cat)).await??)
+/// Is any of them being downloaded or checked? The desktop app asks before Stop and Quit.
+async fn keydb_working(State(a): State<App>) -> Api {
+    let working = tokio::task::spawn_blocking(move || mlstdb::working(&a.cat)).await?;
+    ok(json!({"working": working}))
+}
+
+/// Where the user's own database of this tool stands (never the key itself).
+async fn keydb_status(State(a): State<App>, UrlPath(tool): UrlPath<String>) -> Api {
+    let k = mlstdb::kind(&tool)?;
+    ok(tokio::task::spawn_blocking(move || mlstdb::status(&a.cat, k)).await??)
 }
 
 #[derive(Deserialize)]
-struct MlstUseReq {
+struct KeydbUseReq {
     /// builtin (pre-2025) or own
     #[serde(rename = "use")]
     which: String,
 }
 
-async fn mlst_use(State(a): State<App>, Json(b): Json<MlstUseReq>) -> Api {
-    mlstdb::choose(&a.cat, &b.which)?;
-    ok(mlstdb::status(&a.cat)?)
+async fn keydb_use(State(a): State<App>, UrlPath(tool): UrlPath<String>, Json(b): Json<KeydbUseReq>) -> Api {
+    let k = mlstdb::kind(&tool)?;
+    mlstdb::choose(&a.cat, k, &b.which)?;
+    ok(mlstdb::status(&a.cat, k)?)
 }
 
 #[derive(Deserialize)]
-struct MlstKeyReq {
+struct KeydbKeyReq {
     key: String,
 }
 
-async fn mlst_key(State(a): State<App>, Json(b): Json<MlstKeyReq>) -> Api {
-    ok(tokio::task::spawn_blocking(move || mlstdb::add_key(&a.cat, &b.key)).await??)
+async fn keydb_key(State(a): State<App>, UrlPath(tool): UrlPath<String>, Json(b): Json<KeydbKeyReq>) -> Api {
+    let k = mlstdb::kind(&tool)?;
+    ok(tokio::task::spawn_blocking(move || mlstdb::add_key(&a.cat, k, &b.key)).await??)
 }
 
 #[derive(Deserialize)]
-struct MlstOauthReq {
+struct KeydbOauthReq {
     client_key: String,
     client_secret: String,
 }
 
-async fn mlst_oauth_start(State(a): State<App>, Json(b): Json<MlstOauthReq>) -> Api {
-    ok(tokio::task::spawn_blocking(move || mlstdb::oauth_start(&a.cat, &b.client_key, &b.client_secret)).await??)
+async fn keydb_oauth_start(State(a): State<App>, UrlPath(tool): UrlPath<String>, Json(b): Json<KeydbOauthReq>) -> Api {
+    let k = mlstdb::kind(&tool)?;
+    ok(tokio::task::spawn_blocking(move || mlstdb::oauth_start(&a.cat, k, &b.client_key, &b.client_secret)).await??)
 }
 
 #[derive(Deserialize)]
-struct MlstCodeReq {
+struct KeydbCodeReq {
     code: String,
 }
 
-async fn mlst_oauth_finish(State(a): State<App>, Json(b): Json<MlstCodeReq>) -> Api {
-    ok(tokio::task::spawn_blocking(move || mlstdb::oauth_finish(&a.cat, &b.code)).await??)
+async fn keydb_oauth_finish(State(a): State<App>, UrlPath(tool): UrlPath<String>, Json(b): Json<KeydbCodeReq>) -> Api {
+    let k = mlstdb::kind(&tool)?;
+    ok(tokio::task::spawn_blocking(move || mlstdb::oauth_finish(&a.cat, k, &b.code)).await??)
 }
 
-async fn mlst_update(State(a): State<App>) -> Api {
-    ok(tokio::task::spawn_blocking(move || mlstdb::update(&a.cat)).await??)
+async fn keydb_update(State(a): State<App>, UrlPath(tool): UrlPath<String>) -> Api {
+    let k = mlstdb::kind(&tool)?;
+    ok(tokio::task::spawn_blocking(move || mlstdb::update(&a.cat, k)).await??)
 }
 
-async fn mlst_check(State(a): State<App>) -> Api {
-    ok(tokio::task::spawn_blocking(move || mlstdb::check(&a.cat)).await??)
+async fn keydb_check(State(a): State<App>, UrlPath(tool): UrlPath<String>) -> Api {
+    let k = mlstdb::kind(&tool)?;
+    ok(tokio::task::spawn_blocking(move || mlstdb::check(&a.cat, k)).await??)
 }
 
-async fn mlst_remove(State(a): State<App>) -> Api {
-    tokio::task::spawn_blocking(move || mlstdb::remove(&a.cat)).await??;
+async fn keydb_remove(State(a): State<App>, UrlPath(tool): UrlPath<String>) -> Api {
+    let k = mlstdb::kind(&tool)?;
+    tokio::task::spawn_blocking(move || mlstdb::remove(&a.cat, k)).await??;
     ok(json!({"ok": true}))
 }
 

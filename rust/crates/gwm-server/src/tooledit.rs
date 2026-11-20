@@ -1069,6 +1069,7 @@ mod tests {
             ("mlst_typing", "tinustk/gwm-mlst-typing"),
             ("shigella_typing", "tinustk/gwm-shigella-typing"),
             ("cdiphtheriae_typing", "tinustk/gwm-cdiphtheriae-typing"),
+            ("spyogenes_typing", "tinustk/gwm-spyogenes-typing"),
         ] {
             assert_eq!(published(&builtin(id)), Some(Published::Ghcr(repo)), "{id}");
         }

@@ -1,7 +1,8 @@
 <script lang="ts">
-  // MLST typing's database, shown on the MLST typing tool (Tools page) and on
-  // the Databases page: the pre-2025 database the tool comes with, or an
-  // up-to-date one downloaded with the user's own PubMLST key. The state and
+  // The PubMLST database of a typing tool (MLST typing, S. pyogenes typing),
+  // shown on that tool (Tools page) and on the Databases page: the pre-2025
+  // database the tool comes with, or an up-to-date one downloaded with the
+  // user's own PubMLST key. Each tool has its own key. The state and
   // the download live in `live`, so both places (and the bar at the top) show
   // the same thing and a download carries on when the page changes.
   import Button from './ui/Button.svelte';
@@ -10,10 +11,14 @@
   import Pill from './ui/Pill.svelte';
   import { post, type MlstDb, type MlstJob } from './api';
   import { openLink } from './desktop';
-  import { live, when } from './live.svelte';
+  import { KEY_DBS, live, when, type KeyDbTool } from './live.svelte';
   import { errorText, toasts } from './toast.svelte';
 
-  const m = $derived(live.mlst);
+  let { tool = 'mlst_typing' }: { tool?: KeyDbTool } = $props();
+  /** how this tool and its database are named */
+  const names = $derived(KEY_DBS[tool]);
+
+  const m = $derived(live.keyDb[tool]);
   const job = $derived(m?.job ?? null);
   const working = $derived(job?.status === 'running');
   const percent = $derived(job?.progress && job.progress[1] ? Math.round((job.progress[0] / job.progress[1]) * 100) : null);
@@ -35,10 +40,10 @@
   async function act(name: string, path: string, body: unknown = {}, done?: () => void) {
     busy = name;
     try {
-      const r = await post<MlstDb | MlstJob | { approve_url?: string }>(`/api/mlst-database/${path}`, body);
+      const r = await post<MlstDb | MlstJob | { approve_url?: string }>(`/api/pubmlst-database/${tool}/${path}`, body);
       if ('approve_url' in r && r.approve_url) approveUrl = r.approve_url;
       done?.();
-      await live.refreshMlst();
+      await live.refreshKeyDb(tool);
     } catch (e) {
       toasts.show(errorText(e), 'error', undefined, 12000);
     } finally {
@@ -54,7 +59,7 @@
 
   const use = (which: 'builtin' | 'own') =>
     act(`use-${which}`, 'use', { use: which }, () =>
-      toasts.show(which === 'own' ? 'MLST typing now uses your up-to-date database.' : 'MLST typing now uses the pre-2025 database.'),
+      toasts.show(which === 'own' ? `${names.tool} now uses your up-to-date database.` : `${names.tool} now uses the pre-2025 database.`),
     );
   const saveKey = () => act('key', 'key', { key }, closeForm);
   const oauthStart = () =>
@@ -67,7 +72,7 @@
     act('remove', 'remove', {}, () => {
       removeOpen = false;
       closeForm();
-      toasts.show('Your PubMLST key and the downloaded database are removed. MLST typing uses the pre-2025 database.');
+      toasts.show(`Your PubMLST key and the downloaded database are removed. ${names.tool} uses the pre-2025 database.`);
     });
 
   const keyName = $derived(m?.key_type === 'oauth' ? 'OAuth key' : 'Public data access key');
@@ -76,16 +81,17 @@
 {#if m?.available}
   <div class="flex flex-col gap-4">
     <p class="m-0 text-[13px] leading-relaxed text-ink-2">
-      MLST typing comes with PubMLST data submitted up to <strong>31 December 2024</strong>, which is free and needs no account.
-      PubMLST gives newer alleles and sequence types only to people with their own account. Enter your own PubMLST key and the
-      app downloads the current schemes to this computer (about 1.5 hours, once) and types against them.
+      {names.tool} comes with PubMLST data submitted up to <strong>31 December 2024</strong>, which is free and needs no account.
+      PubMLST gives newer {names.newer} only to people with their own account. Enter your own PubMLST key and the
+      app downloads the current schemes to this computer ({names.time}, once) and types against them.
+      Each typing tool keeps its own key: a key entered for another tool is not used here.
     </p>
 
     {#if !m.answered && !working}
       <div class="flex gap-3 rounded-xl border border-warn-line bg-warn-soft p-3.5 text-[13px] text-warn-ink" role="status">
         <span class="mt-0.5 flex-none"><Icon name="info" size={18} /></span>
         <span>
-          <strong>Choose the database MLST typing uses.</strong> Until you choose, the pre-2025 database is used. You can change
+          <strong>Choose the database {names.tool} uses.</strong> Until you choose, the pre-2025 database is used. You can change
           this, or add a key, any time later.
         </span>
       </div>
@@ -97,7 +103,7 @@
         <span class="text-sm font-semibold">
           {job.kind === 'check' ? 'Checking PubMLST for anything newer' : 'Downloading the up-to-date database'}{percent != null ? ` · ${percent}%` : ''}
         </span>
-        <div class="h-2 overflow-hidden rounded-full bg-line" role="progressbar" aria-label="MLST database progress" aria-valuenow={percent ?? 0} aria-valuemin={0} aria-valuemax={100}>
+        <div class="h-2 overflow-hidden rounded-full bg-line" role="progressbar" aria-label="{names.db} database progress" aria-valuenow={percent ?? 0} aria-valuemin={0} aria-valuemax={100}>
           <div class="h-full rounded-full bg-brand transition-[width] duration-500 {percent == null ? 'animate-pulse' : ''}" style="width: {percent ?? 100}%"></div>
         </div>
         <span class="text-xs text-muted">
@@ -119,7 +125,7 @@
           {#if m.in_use === 'builtin'}<Pill status="installed" text={m.answered ? 'In use' : 'In use for now'} />{/if}
         </div>
         <p class="m-0 text-[13px] text-ink-2">
-          Built into the tool: PubMLST data to 31 December 2024, plus the current EnteroBase schemes. Nothing to download.
+          Built into the tool: {names.builtin} Nothing to download.
         </p>
         {#if !(m.in_use === 'builtin' && m.answered)}
           <div class="mt-auto pt-1">
@@ -265,7 +271,7 @@
 
   <Dialog bind:open={removeOpen} title="Remove your PubMLST key?">
     <p class="m-0">
-      This forgets your key and deletes the up-to-date database downloaded with it. MLST typing goes back to the pre-2025
+      This forgets your key and deletes the up-to-date database downloaded with it. {names.tool} goes back to the pre-2025
       database. Runs you already made are not changed. You can enter a key again later; the download then starts from the
       beginning.
     </p>

@@ -1,22 +1,24 @@
-//! MLST typing's up-to-date database. The tool comes with PubMLST data
-//! submitted up to 31 December 2024 (inside its container). PubMLST gives
-//! newer data only to a user's own account, so the user can enter their own
-//! key here: the tool (mlst-typing 0.5.0 and newer, in its container) tests
-//! it, keeps it on this computer and downloads the current schemes into a
-//! database of the user's own. The MLST typing tool page and the Databases
-//! page both show this.
+//! The up-to-date PubMLST database of a typing tool: MLST typing and
+//! S. pyogenes typing (`KINDS`). Each tool comes with PubMLST data submitted
+//! up to 31 December 2024 (inside its container). PubMLST gives newer data
+//! only to a user's own account, so the user can enter their own key here:
+//! the tool (in its container) tests it, keeps it on this computer and
+//! downloads the current schemes into a database of the user's own. The
+//! tool's page and the Databases page both show this. Each tool has its own
+//! key and its own database: nothing is shared between them.
 //!
-//! Folders, under the databases folder:
-//!   mlst_typing/own/   what a typing step is given as `$USER_DATA` (the
-//!                      tool's `user_data`): `in_use` (builtin | own) and
-//!                      the tool's data folder (`mlst-typing/database`)
-//!   mlst_typing/key/   the tool's config folder: the saved key. Never
-//!                      given to a typing step.
-//!   mlst_typing/job/   the folder the setup command runs in
+//! Folders, under the databases folder (`<tool>` = mlst_typing, spyogenes_typing):
+//!   <tool>/own/   what a typing step is given as `$USER_DATA` (the
+//!                 tool's `user_data`): `in_use` (builtin | own) and
+//!                 the tool's data folder (`mlst-typing/database`)
+//!   <tool>/key/   the tool's config folder: the saved key. Never
+//!                 given to a typing step.
+//!   <tool>/job/   the folder the setup command runs in
 //!
 //! The key goes to the tool through a file that is deleted as soon as the
 //! tool has read it; it is never put on a command line or in a log.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,15 +32,52 @@ use serde_json::{json, Value};
 
 use crate::jobs::{self, Job, Reporter};
 
-/// The built-in tool this belongs to.
-pub const TOOL: &str = "mlst_typing";
-/// One setup command at a time, in a container of this name.
-const CONTAINER: &str = "gwm-mlst-database";
-/// The tool inside its container.
-const PROGRAM: &str = "python /opt/mlst_typing/mlst_typing.py";
+/// A built-in tool that has a PubMLST database of the user's own.
+#[derive(Debug)]
+pub struct Kind {
+    /// the built-in tool's id
+    pub tool: &'static str,
+    /// how messages name its database: "the MLST database"
+    name: &'static str,
+    /// one setup command at a time, in a container of this name
+    container: &'static str,
+    /// the tool inside its container
+    program: &'static str,
+    /// the tool's own folder name under its config and data folders
+    folder: &'static str,
+    /// the file under `database/blast` that says the own database is complete
+    marker: &'static str,
+}
 
-/// The job in memory: (what it does, its id in `jobs`).
-static CURRENT: Mutex<Option<(String, String)>> = Mutex::new(None);
+pub static KINDS: [Kind; 2] = [
+    Kind {
+        tool: "mlst_typing",
+        name: "MLST",
+        container: "gwm-mlst-database",
+        program: "python /opt/mlst_typing/mlst_typing.py",
+        folder: "mlst-typing",
+        marker: "mlst.fa.nsq",
+    },
+    Kind {
+        tool: "spyogenes_typing",
+        name: "S. pyogenes",
+        container: "gwm-spyogenes-database",
+        program: "python /opt/spyogenes_typing/spyogenes_typing.py",
+        folder: "spyogenes-typing",
+        marker: "spyogenes.nsq",
+    },
+];
+
+/// The tool named in a request.
+pub fn kind(tool: &str) -> Result<&'static Kind> {
+    KINDS
+        .iter()
+        .find(|k| k.tool == tool)
+        .ok_or_else(|| anyhow!("{tool} has no database of its own to download"))
+}
+
+/// The jobs in memory: tool id -> (what it does, its id in `jobs`).
+static CURRENT: Mutex<BTreeMap<&'static str, (String, String)>> = Mutex::new(BTreeMap::new());
 
 fn sq(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
@@ -46,6 +85,7 @@ fn sq(s: &str) -> String {
 
 #[derive(Debug, Clone)]
 struct Dirs {
+    kind: &'static Kind,
     base: PathBuf,
     own: PathBuf,
     key: PathBuf,
@@ -55,16 +95,19 @@ struct Dirs {
 }
 
 impl Dirs {
-    /// Nothing when the MLST typing tool here has no own database (an older one).
-    fn of(cat: &Catalog) -> Result<Option<Dirs>> {
+    /// Nothing when the tool here has no own database (an older one).
+    fn of(cat: &Catalog, kind: &'static Kind) -> Result<Option<Dirs>> {
         let tools = cat.load_tools()?;
-        let Some(tool) = tools.get(TOOL) else { return Ok(None) };
+        let Some(tool) = tools.get(kind.tool) else {
+            return Ok(None);
+        };
         let Some(rel) = compiler::user_data(tool) else {
             return Ok(None);
         };
         let own = paths::db_dir(&cat.home).join(rel);
         let base = own.parent().unwrap_or(&own).to_path_buf();
         Ok(Some(Dirs {
+            kind,
             key: base.join("key"),
             job: base.join("job"),
             base,
@@ -73,16 +116,16 @@ impl Dirs {
         }))
     }
 
-    fn need(cat: &Catalog) -> Result<Dirs> {
-        Dirs::of(cat)?.ok_or_else(|| anyhow!("this version of MLST typing has no database of its own to download"))
+    fn need(cat: &Catalog, kind: &'static Kind) -> Result<Dirs> {
+        Dirs::of(cat, kind)?.ok_or_else(|| anyhow!("this version of the tool has no database of its own to download"))
     }
 
     fn database(&self) -> PathBuf {
-        self.own.join("mlst-typing").join("database")
+        self.own.join(self.kind.folder).join("database")
     }
 
     fn has_own(&self) -> bool {
-        self.database().join("blast").join("mlst.fa.nsq").exists()
+        self.database().join("blast").join(self.kind.marker).exists()
     }
 
     fn in_use_file(&self) -> PathBuf {
@@ -104,7 +147,7 @@ impl Dirs {
     }
 
     fn tool_file(&self, name: &str) -> PathBuf {
-        self.key.join("mlst-typing").join(name)
+        self.key.join(self.kind.folder).join(name)
     }
 }
 
@@ -221,7 +264,7 @@ fn run(
     );
     fs::write(d.job.join(".command.sh"), script)?;
     let task = TaskRun {
-        name: CONTAINER.into(),
+        name: d.kind.container.into(),
         dir: d.job.clone(),
         image: d.image.clone(),
         cpus: 1,
@@ -250,8 +293,9 @@ fn run(
 /// After a download: the own database, when there is one now, is the one in use.
 fn use_own(d: &Dirs) -> String {
     format!(
-        "if [ -f {}/blast/mlst.fa.nsq ]; then echo own > {}; fi",
+        "if [ -f {}/blast/{} ]; then echo own > {}; fi",
         sq(&d.database().to_string_lossy()),
+        d.kind.marker,
         sq(&d.in_use_file().to_string_lossy())
     )
 }
@@ -262,7 +306,7 @@ fn left_running(d: &Dirs) -> Option<Value> {
     let marker = d.job.join("running");
     let kind = fs::read_to_string(&marker).ok()?.trim().to_string();
     let alive = gwm_engine::docker::command()
-        .args(["ps", "-q", "--filter", &format!("name=^{CONTAINER}$")])
+        .args(["ps", "-q", "--filter", &format!("name=^{}$", d.kind.container)])
         .output()
         .is_ok_and(|o| o.status.success() && !o.stdout.iter().all(u8::is_ascii_whitespace));
     if !alive {
@@ -291,7 +335,7 @@ fn job_view(kind: &str, job: &Job) -> Value {
 }
 
 fn current(d: &Dirs) -> Option<Value> {
-    let held = CURRENT.lock().unwrap().clone();
+    let held = CURRENT.lock().unwrap().get(d.kind.tool).cloned();
     if let Some((kind, id)) = held {
         if let Some(job) = jobs::get(&id) {
             return Some(job_view(&kind, &job));
@@ -305,8 +349,8 @@ fn busy(d: &Dirs) -> bool {
 }
 
 /// Where things stand, for the panel and the Home page. Never holds the key.
-pub fn status(cat: &Catalog) -> Result<Value> {
-    let Some(d) = Dirs::of(cat)? else {
+pub fn status(cat: &Catalog, k: &'static Kind) -> Result<Value> {
+    let Some(d) = Dirs::of(cat, k)? else {
         return Ok(json!({"available": false}));
     };
     let cred = read_json(&d.tool_file("credentials.json"));
@@ -328,14 +372,17 @@ pub fn status(cat: &Catalog) -> Result<Value> {
     }))
 }
 
-/// Is a download (or a check) going? The desktop app keeps the services on for it.
+/// Is a download (or a check) going, of any tool's database? The desktop app
+/// keeps the services on for it.
 pub fn working(cat: &Catalog) -> bool {
-    Dirs::of(cat).ok().flatten().is_some_and(|d| busy(&d))
+    KINDS
+        .iter()
+        .any(|k| Dirs::of(cat, k).ok().flatten().is_some_and(|d| busy(&d)))
 }
 
 /// Choose the database typing uses from now on: `builtin` (pre-2025) or `own`.
-pub fn choose(cat: &Catalog, which: &str) -> Result<()> {
-    let d = Dirs::need(cat)?;
+pub fn choose(cat: &Catalog, k: &'static Kind, which: &str) -> Result<()> {
+    let d = Dirs::need(cat, k)?;
     match which {
         "builtin" => {}
         "own" if d.has_own() => {}
@@ -358,20 +405,24 @@ pub(crate) fn containers() -> Result<Box<dyn Backend>> {
 /// Start a setup command in the background; the panel follows it.
 fn start(
     cat: &Catalog,
+    k: &'static Kind,
     kind: &'static str,
     title: &str,
     body: String,
     secret: Option<String>,
     after: impl FnOnce(&Dirs, &str, &Reporter) -> Result<()> + Send + 'static,
 ) -> Result<Value> {
-    let d = Dirs::need(cat)?;
+    let d = Dirs::need(cat, k)?;
     let mut held = CURRENT.lock().unwrap();
     let going = held
-        .as_ref()
+        .get(k.tool)
         .and_then(|(_, id)| jobs::get(id))
         .is_some_and(|j| j.status == "running");
     if going || left_running(&d).is_some() {
-        bail!("the MLST database is already being downloaded or checked: wait for it to finish");
+        bail!(
+            "the {} database is already being downloaded or checked: wait for it to finish",
+            k.name
+        );
     }
     // say so now when the tools can't start, not a moment later as a failed download
     containers()?;
@@ -380,7 +431,7 @@ fn start(
         let out = run(&work, containers()?.as_ref(), kind, &body, secret.as_deref(), Some(r))?;
         after(&work, &out, r)
     });
-    *held = Some((kind.to_string(), job.id.clone()));
+    held.insert(k.tool, (kind.to_string(), job.id.clone()));
     Ok(job_view(kind, &job))
 }
 
@@ -408,18 +459,20 @@ fn one_word(text: &str, what: &str) -> Result<String> {
 }
 
 /// The user's PubMLST "Public data access key": test it, keep it, download.
-pub fn add_key(cat: &Catalog, key: &str) -> Result<Value> {
+pub fn add_key(cat: &Catalog, k: &'static Kind, key: &str) -> Result<Value> {
     let key = one_word(key, "the key")?;
-    let d = Dirs::need(cat)?;
+    let d = Dirs::need(cat, k)?;
     let body = format!(
-        "key=$(cat secret); rm -f secret\nprintf '%s\\n' \"$key\" | {PROGRAM} --setup --key-file -\n{}",
+        "key=$(cat secret); rm -f secret\nprintf '%s\\n' \"$key\" | {} --setup --key-file -\n{}",
+        k.program,
         use_own(&d)
     );
     let before = (d.has_own(), d.version());
     start(
         cat,
+        k,
         "download",
-        "Download the up-to-date MLST database",
+        &format!("Download the up-to-date {} database", k.name),
         body,
         Some(key),
         downloaded(before),
@@ -428,20 +481,23 @@ pub fn add_key(cat: &Catalog, key: &str) -> Result<Value> {
 
 /// OAuth, step 1: the client key and secret. Answers with the PubMLST page
 /// where the user approves the tool and gets a verification code.
-pub fn oauth_start(cat: &Catalog, client_key: &str, client_secret: &str) -> Result<Value> {
+pub fn oauth_start(cat: &Catalog, k: &'static Kind, client_key: &str, client_secret: &str) -> Result<Value> {
     let (client_key, client_secret) = (
         one_word(client_key, "the client key")?,
         one_word(client_secret, "the client secret")?,
     );
-    let d = Dirs::need(cat)?;
+    let d = Dirs::need(cat, k)?;
     if busy(&d) {
-        bail!("the MLST database is already being downloaded or checked: wait for it to finish");
+        bail!(
+            "the {} database is already being downloaded or checked: wait for it to finish",
+            k.name
+        );
     }
     let out = run(
         &d,
         containers()?.as_ref(),
         "sign-in",
-        &format!("{PROGRAM} --setup --oauth-start --key-file secret"),
+        &format!("{} --setup --oauth-start --key-file secret", k.program),
         Some(&format!("{client_key}\n{client_secret}")),
         None,
     )?;
@@ -453,21 +509,22 @@ pub fn oauth_start(cat: &Catalog, client_key: &str, client_secret: &str) -> Resu
 }
 
 /// OAuth, step 2: the verification code PubMLST showed. Keeps the key and downloads.
-pub fn oauth_finish(cat: &Catalog, code: &str) -> Result<Value> {
+pub fn oauth_finish(cat: &Catalog, k: &'static Kind, code: &str) -> Result<Value> {
     let code = one_word(code, "the verification code")?;
     if !code.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         bail!("the verification code has only letters and numbers: copy it from the PubMLST page");
     }
-    let d = Dirs::need(cat)?;
+    let d = Dirs::need(cat, k)?;
     if !d.tool_file("oauth_pending.json").exists() {
         bail!("enter the client key and client secret first");
     }
-    let body = format!("{PROGRAM} --setup --oauth-finish {}\n{}", sq(&code), use_own(&d));
+    let body = format!("{} --setup --oauth-finish {}\n{}", k.program, sq(&code), use_own(&d));
     let before = (d.has_own(), d.version());
     start(
         cat,
+        k,
         "download",
-        "Download the up-to-date MLST database",
+        &format!("Download the up-to-date {} database", k.name),
         body,
         None,
         downloaded(before),
@@ -476,18 +533,19 @@ pub fn oauth_finish(cat: &Catalog, code: &str) -> Result<Value> {
 
 /// Download again with the saved key. The choice of database stays, unless
 /// this is the first download that worked.
-pub fn update(cat: &Catalog) -> Result<Value> {
-    let d = Dirs::need(cat)?;
+pub fn update(cat: &Catalog, k: &'static Kind) -> Result<Value> {
+    let d = Dirs::need(cat, k)?;
     if !d.tool_file("credentials.json").exists() {
         bail!("no PubMLST key is saved yet: enter your key first");
     }
     let first = if d.has_own() { String::new() } else { use_own(&d) };
-    let body = format!("{PROGRAM} --update\n{first}");
+    let body = format!("{} --update\n{first}", k.program);
     let before = (d.has_own(), d.version());
     start(
         cat,
+        k,
         "download",
-        "Update the MLST database",
+        &format!("Update the {} database", k.name),
         body,
         None,
         downloaded(before),
@@ -495,16 +553,17 @@ pub fn update(cat: &Catalog) -> Result<Value> {
 }
 
 /// Ask PubMLST whether anything is newer than the database here. Downloads nothing.
-pub fn check(cat: &Catalog) -> Result<Value> {
-    let d = Dirs::need(cat)?;
+pub fn check(cat: &Catalog, k: &'static Kind) -> Result<Value> {
+    let d = Dirs::need(cat, k)?;
     if !d.tool_file("credentials.json").exists() {
         bail!("no PubMLST key is saved yet: enter your key first");
     }
     start(
         cat,
+        k,
         "check",
-        "Check for a newer MLST database",
-        format!("{PROGRAM} --update-check"),
+        &format!("Check for a newer {} database", k.name),
+        format!("{} --update-check", k.program),
         None,
         |d, out, r| {
             let found: Value = serde_json::from_str(out).context("reading what the check found")?;
@@ -525,18 +584,21 @@ pub fn check(cat: &Catalog) -> Result<Value> {
 }
 
 /// Forget the key and delete the downloaded database: back to the pre-2025 one.
-pub fn remove(cat: &Catalog) -> Result<()> {
-    let d = Dirs::need(cat)?;
+pub fn remove(cat: &Catalog, k: &'static Kind) -> Result<()> {
+    let d = Dirs::need(cat, k)?;
     if busy(&d) {
-        bail!("the MLST database is being downloaded or checked: wait for it to finish");
+        bail!(
+            "the {} database is being downloaded or checked: wait for it to finish",
+            k.name
+        );
     }
-    for dir in [d.key.clone(), d.own.join("mlst-typing"), d.job.clone()] {
+    for dir in [d.key.clone(), d.own.join(k.folder), d.job.clone()] {
         if dir.exists() {
             fs::remove_dir_all(&dir).with_context(|| format!("removing {}", dir.display()))?;
         }
     }
     let _ = fs::remove_file(d.base.join("last_check.json"));
-    *CURRENT.lock().unwrap() = None;
+    CURRENT.lock().unwrap().remove(k.tool);
     fs::create_dir_all(&d.own)?;
     fs::write(d.in_use_file(), "builtin\n")?;
     Ok(())
@@ -548,11 +610,16 @@ mod tests {
 
     /// A folder of this test's own, emptied first.
     fn dirs(test: &str) -> Dirs {
+        dirs_of(test, &KINDS[0])
+    }
+
+    fn dirs_of(test: &str, kind: &'static Kind) -> Dirs {
         let base = std::env::temp_dir()
             .join(format!("gwm-mlstdb-{test}-{}", std::process::id()))
-            .join("mlst_typing");
+            .join(kind.tool);
         let _ = fs::remove_dir_all(&base);
         Dirs {
+            kind,
             own: base.join("own"),
             key: base.join("key"),
             job: base.join("job"),
@@ -632,6 +699,30 @@ mod tests {
         assert_eq!(e.to_string(), "PubMLST answered HTTP 401");
         assert!(!d.job.join("secret").exists());
         let _ = fs::remove_dir_all(d.base.parent().unwrap());
+    }
+
+    /// Each tool keeps its own folders, key and database: what one has says
+    /// nothing about the other.
+    #[test]
+    fn each_tool_has_its_own_database() {
+        assert_eq!(kind("mlst_typing").unwrap().name, "MLST");
+        let spy = kind("spyogenes_typing").unwrap();
+        assert!(kind("shovill").is_err());
+        let (m, s) = (dirs_of("own-m", &KINDS[0]), dirs_of("own-s", spy));
+        assert!(s.database().ends_with("spyogenes-typing/database"));
+        assert!(s
+            .tool_file("credentials.json")
+            .ends_with("key/spyogenes-typing/credentials.json"));
+        fs::create_dir_all(s.database().join("blast")).unwrap();
+        // the other tool's file is not this tool's database
+        fs::write(s.database().join("blast").join("mlst.fa.nsq"), "").unwrap();
+        assert!(!s.has_own());
+        fs::write(s.database().join("blast").join("spyogenes.nsq"), "").unwrap();
+        assert!(s.has_own() && !m.has_own());
+        assert!(use_own(&s).contains("/blast/spyogenes.nsq ]"));
+        for d in [m, s] {
+            let _ = fs::remove_dir_all(d.base.parent().unwrap());
+        }
     }
 
     #[test]

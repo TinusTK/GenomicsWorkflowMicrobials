@@ -6,13 +6,13 @@
   import Dialog from '../lib/ui/Dialog.svelte';
   import Pill from '../lib/ui/Pill.svelte';
   import { post, type Database, type Job } from '../lib/api';
-  import { KUN_PENG, live, size } from '../lib/live.svelte';
+  import { KEY_DBS, KEY_DB_TOOLS, KUN_PENG, live, size } from '../lib/live.svelte';
   import { errorText, toasts } from '../lib/toast.svelte';
 
   // the installs live in `live`: they carry on, and still show here, after a look at another page
   const jobs = $derived(live.dbJobs);
   live.refreshDatabases();
-  live.refreshMlst();
+  live.refreshKeyDbs();
 
   async function install(id: string) {
     try {
@@ -226,16 +226,17 @@
       {@render card(item.db!, false)}
     {/if}
   {/each}
-  {#if live.mlst?.available}
-
-    <article class="card flex flex-col gap-3 p-5" id="mlst-database">
-      <div class="flex flex-wrap items-center gap-3">
-        <h2 class="m-0 text-base font-semibold">MLST typing database</h2>
-        <Pill status="installed" text={live.mlst.in_use === 'own' ? 'Using your up-to-date database' : 'Using the pre-2025 database'} />
-      </div>
-      <MlstDatabase />
-    </article>
-  {/if}
+  {#each KEY_DB_TOOLS as tool (tool)}
+    {#if live.keyDb[tool]?.available}
+      <article class="card flex flex-col gap-3 p-5" id="{tool}-database">
+        <div class="flex flex-wrap items-center gap-3">
+          <h2 class="m-0 text-base font-semibold">{KEY_DBS[tool].tool} database</h2>
+          <Pill status="installed" text={live.keyDb[tool]?.in_use === 'own' ? 'Using your up-to-date database' : 'Using the pre-2025 database'} />
+        </div>
+        <MlstDatabase {tool} />
+      </article>
+    {/if}
+  {/each}
 </div>
 
 <Dialog

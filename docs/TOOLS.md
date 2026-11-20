@@ -220,7 +220,7 @@ importing the RDH `.ga` files in `reference/` gives the built-in workflow.
 ## Tool containers built by this repository
 
 Tools with no BioContainers image (Shigella typing, C. diphtheriae typing,
-MLST typing), and tbtAMR, whose BioContainers image is broken (its Dockerfile
+MLST typing, S. pyogenes typing), and tbtAMR, whose BioContainers image is broken (its Dockerfile
 says how), get
 theirs from `containers/<name>/Dockerfile`, built and published by
 `.github/workflows/containers.yml` as `ghcr.io/tinustk/gwm-<name>:<version>`.
